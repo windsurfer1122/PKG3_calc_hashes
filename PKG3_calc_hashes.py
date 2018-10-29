@@ -17,7 +17,7 @@
 ###       * Identical output
 ###       * Forward-compatible solutions preferred
 ###
-### For options execute: PKG3_calc_hashes.py -h
+### For options execute: PKG3_calc_hashes.py -h and read the README.md
 ### Use at your own risk!
 ###
 ###
@@ -77,12 +77,14 @@ from builtins import bytes
 import sys
 import struct
 import io
+import requests
 import collections
 import locale
 import os
 import getopt
 import hmac
 import hashlib
+import random
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import cmac
@@ -140,6 +142,12 @@ except:
 
 
 ##
+## Generic Definitions
+##
+#
+CONST_READ_SIZE = random.randint(10,100) * 0x100000  ## Read in 10-100 MiB chunks to reduce memory usage
+
+##
 ## PKG3 Definitions
 ##
 #
@@ -155,6 +163,65 @@ CONST_PKG3_CONTENT_KEYS = {
 }
 
 
+class PkgReader():
+    def __init__(self, source, debug_level=0):
+        self._source = source
+        self._size = None
+
+        if self._source.startswith("http:") \
+        or self._source.startswith("https:"):
+            if debug_level >= 2:
+                dprint("Opening source as URL data stream")
+            self._stream_type = "requests"
+            ## Persistent session
+            ## http://docs.python-requests.org/en/master/api/#request-sessions
+            try:
+                self._data_stream = requests.Session()
+            except:
+                eprint("\nERROR: {}: Could not create HTTP/S session for PKG URL".format(sys.argv[0]))
+                sys.exit(2)
+            self._data_stream.headers = {"User-Agent": "libhttp/3.69 (PS Vita)"}
+            response = self._data_stream.head(self._source)
+            if debug_level >= 2:
+                dprint(response)
+                dprint("Response headers:", response.headers)
+            if "content-length" in response.headers:
+                self._size = int(response.headers["content-length"])
+        else:
+            if debug_level >= 2:
+                dprint("Opening source as FILE data stream")
+            self._stream_type = "file"
+            try:
+                self._data_stream = io.open(self._source, mode="rb", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+            except:
+                eprint("\nERROR: {}: Could not open PKG FILE {}".format(sys.argv[0], self._source))
+                sys.exit(2)
+            #
+            self._data_stream.seek(0, os.SEEK_END)
+            self._size = self._data_stream.tell()
+
+        if debug_level >= 3:
+            dprint("Data stream is of class {}".format(self._data_stream.__class__.__name__))
+
+    def getSize(self, debug_level=0):
+        return self._size
+
+    def read(self, offset, size, debug_level=0):
+        if self._stream_type == "file":
+            self._data_stream.seek(offset, os.SEEK_SET)
+            return self._data_stream.read(size)
+        elif self._stream_type == "requests":
+            ## Send request in persistent session
+            ## http://docs.python-requests.org/en/master/api/#requests.Session.get
+            ## http://docs.python-requests.org/en/master/api/#requests.request
+            reqheaders={"Range": "bytes={}-{}".format(offset, offset + size - 1)}
+            response = self._data_stream.get(self._source, headers=reqheaders)
+            return response.content
+
+    def close(self, debug_level=0):
+        return self._data_stream.close()
+
+
 def convertBytesToHexString(data, format=""):
     if isinstance(data, int):
         data = struct.pack(format, data)
@@ -166,15 +233,17 @@ def convertBytesToHexString(data, format=""):
 
 
 def showUsage():
-    eprint("Usage: {} [options] <path PKG file>".format(sys.argv[0]))
+    eprint("Usage: {} [options] <URL of or path to PKG file> [<URL|PATH> ...]".format(sys.argv[0]))
     eprint("  -h/--help       Show this help")
     eprint("  -d/--debug=<n>  Debug verbosity level")
     eprint("                    0 = No debug info [default]")
-    eprint("                    1 = Show parsed results only")
-    eprint("                    2 = Additionally show raw PKG and SFO data plus read actions")
-    eprint("                    3 = Additionally show interim PKG and SFO data to get results")
-    eprint("  -b/--block=<offset>,<size>][,sha]  Data Block to build CMAC and SHA-1 for")
-    eprint("                                      Optional sha statement will use SHA-1 only, e.g. file hash at the end of each pkg file")
+    eprint("                    1 = Show calculated file block offsets and sizes")
+    eprint("                    2 = Additionally show read actions")
+    eprint("                    3 = Additionally show parsed options and internal stuff")
+    eprint("  -b/--block=<offset>,<size>[,<verifyhash:sha-1|none>]")
+    eprint("                  Data Block to build hashes for (CMAC, SHA-1, etc.)")
+    eprint("                  Optional verify hash statement sha-1 will check SHA-1 instead")
+    eprint("                  of CMAC digest, e.g. file hash at the end of each pkg file")
 
 
 ## Global code
@@ -203,10 +272,8 @@ if __name__ == "__main__":
             Block = OptionValue.split(",")
             BlockCount = len(Block)
             if BlockCount < 2 \
-            or BlockCount > 3 \
-            or (BlockCount > 2 \
-                and Block[2].lower() != 'sha'):
-                eprint("Option {}: block value {} is not valid (offset,size[,sha])".format(Option, OptionValue))
+            or BlockCount > 3:
+                eprint("Option {}: block value {} is not valid (offset,size[,verifyhash])".format(Option, OptionValue))
                 ExitCode = 2
                 continue
 
@@ -223,10 +290,6 @@ if __name__ == "__main__":
                 Skip = True
             try:
                 BlockSize = int(Block[1])
-                if BlockSize == 0:
-                    eprint("Option {}: size value {} is not valid".format(Option, BlockSize))
-                    ExitCode = 2
-                    Skip = True
             except:
                 eprint("Option {}: size value {} is not a number".format(Option, Block[1]))
                 ExitCode = 2
@@ -237,13 +300,18 @@ if __name__ == "__main__":
 
             Index = len(Blocks)
             Blocks.append({})
-            Blocks[Index]["INDEX"] = Index
+            Blocks[Index]["NUMBER"] = Index + 1
             Blocks[Index]["OFFSET"] = BlockOffset
             Blocks[Index]["SIZE"] = BlockSize
-            Blocks[Index]["SHA"] = False
-            if BlockCount > 2 \
-            and Block[2].lower() == 'sha':
-                Blocks[Index]["SHA"] = True
+            Blocks[Index]["VERIFY"] = "DIGEST"
+            if BlockCount > 2:
+                if Block[2].lower() == 'sha' \
+                or Block[2].lower() == 'sha1' \
+                or Block[2].lower() == 'sha-1':
+                    Blocks[Index]["VERIFY"] = "SHA-1"
+                elif Block[2].lower() == 'no' \
+                or Block[2].lower() == 'none':
+                    Blocks[Index]["VERIFY"] = None
         elif Option in ("-d", "--debug"):
             try:
                 DebugLevel = int(OptionValue)
@@ -280,37 +348,24 @@ if __name__ == "__main__":
 
     BlocksByOffset = sorted(Blocks, key=lambda x: (x["OFFSET"], x["SIZE"]))
 
-    dprint("BlocksByOffset:")
-    for _i in range(len(BlocksByOffset)):
-        dprint("{}:".format(_i), BlocksByOffset[_i])
+    if DebugLevel >= 3:
+        dprint("BlocksByOffset:")
+        for _i in range(len(BlocksByOffset)):
+            dprint("{}:".format(_i), BlocksByOffset[_i])
 
     ## Process paths
     for Source in Arguments:
-        ## Initialize per-file variables
-        DataStream = None
-        FileSize = None
-
-        ## Open source as StreamData stream
         print(">>>>>>>>>> PKG Source:", Source)
 
-        if DebugLevel >= 2:
-            dprint("Opening source as FILE data stream")
-        try:
-            DataStream = io.open(Source, mode="rb", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
-        except:
-            eprint("\nERROR: {}: Could not open FILE {}".format(sys.argv[0], Source))
-            sys.exit(2)
-
-        if DebugLevel >= 3:
-            dprint("Data stream is of class {}".format(DataStream.__class__.__name__))
-
-        DataStream.seek(0, os.SEEK_END)
-        FileSize = DataStream.tell()
+        ## Initialize per-file variables
+        DataStream = PkgReader(Source, DebugLevel)
+        FileSize = DataStream.getSize(DebugLevel)
         print("File Size:", FileSize)
 
         ## Calculate necessary file blocks by combining data blocks that share file data
         FileBlocks = []
         FileParts = []
+        FilePartIndex = -1
         for _i in range(len(BlocksByOffset)):
             BlockOffset = BlocksByOffset[_i]["OFFSET"]
             BlockSize = BlocksByOffset[_i]["SIZE"]
@@ -318,18 +373,25 @@ if __name__ == "__main__":
             ## Add block as file block
             Index = len(FileBlocks)
             FileBlocks.append({})
-            FileBlocks[Index]["INDEX"] = BlocksByOffset[_i]["INDEX"]
+            FileBlocks[Index]["NUMBER"] = BlocksByOffset[_i]["NUMBER"]
             FileBlocks[Index]["OFFSET"] = BlockOffset
             FileBlocks[Index]["SIZE"] = BlockSize
+            FileBlocks[Index]["VERIFY"] = BlocksByOffset[_i]["VERIFY"]
 
             ## Check block offset
-            if BlockOffset >= FileSize:
+            if FileSize \
+            and BlockOffset >= FileSize:
                 FileBlocks[Index]["SKIP"] = True
                 continue
 
             ## Handle size
+            if not FileSize \
+            and BlockSize <= 0:
+                FileBlocks[Index]["SKIP"] = True
+                continue
+            #
             RelativeSize = 0
-            if BlockSize < 0:
+            if BlockSize <= 0:
                 FileBlocks[Index]["ORGSIZE"] = BlockSize
                 RelativeSize = BlockSize
                 BlockSize = FileSize + RelativeSize - BlockOffset
@@ -342,19 +404,16 @@ if __name__ == "__main__":
 
             ## Check next offset
             NextOffset = BlockOffset + BlockSize
-            if NextOffset > FileSize:
+            if FileSize \
+            and NextOffset > FileSize:
                 FileBlocks[Index]["SKIP"] = True
                 continue
 
             ## Extend file block data
             FileBlocks[Index]["NEXTOFFSET"] = NextOffset
-            FileBlocks[Index]["SHA"] = BlocksByOffset[_i]["SHA"]
-            FileBlocks[Index]["CMAC"] = None
-            FileBlocks[Index]["SHA1"] = None
-            FileBlocks[Index]["SHA256"] = None
 
             ## Block starts a new file part
-            if _i == 0 \
+            if FilePartIndex < 0 \
             or BlockOffset >= FileParts[FilePartIndex]["NEXTOFFSET"]:
                 FilePartIndex = len(FileParts)
                 FileParts.append({})
@@ -367,17 +426,19 @@ if __name__ == "__main__":
 
             FileParts[FilePartIndex]["OFFSETS"].extend((BlockOffset, NextOffset))
 
-        dprint("FileBlocks:")
-        for _i in range(len(FileBlocks)):
-            dprint("{}:".format(_i), FileBlocks[_i])
+        if DebugLevel >= 1:
+            dprint("FileBlocks:")
+            for _i in range(len(FileBlocks)):
+                dprint("{}:".format(_i), FileBlocks[_i])
 
         ## For each file part do a unique sort of its offsets
         for _i in range(len(FileParts)):
             FileParts[_i]["OFFSETS"] = sorted(set(FileParts[_i]["OFFSETS"]))
 
-        dprint("FileParts:")
-        for _i in range(len(FileParts)):
-            dprint("{}:".format(_i), FileParts[_i])
+        if DebugLevel >= 1:
+            dprint("FileParts:")
+            for _i in range(len(FileParts)):
+                dprint("{}:".format(_i), FileParts[_i])
 
         ## Read each file part in chunks derived from the offsets
         ## and calculate the CMAC and SHA hashes for each file block
@@ -394,27 +455,30 @@ if __name__ == "__main__":
                 ## Add hashes entry for new offset
                 Hashes[BlockOffset] = {}
                 Hashes[BlockOffset]["CMAC"] = cmac.CMAC(algorithms.AES(CONST_PKG3_CONTENT_KEYS[0]["KEY"]), backend=default_backend())
-                Hashes[BlockOffset]["SHA1"] = hashlib.sha1()
-                Hashes[BlockOffset]["SHA256"] = hashlib.sha256()
+                Hashes[BlockOffset]["SHA-1"] = hashlib.sha1()
+                Hashes[BlockOffset]["SHA-256"] = hashlib.sha256()
                 Hashes[BlockOffset]["MD5"] = hashlib.md5()
 
                 ## Get data from file
-                dprint("Retrieve offset {:#010x} size {}".format(BlockOffset, BlockSize))
-                READ_SIZE = 10 * 0x100000  ## Read in 10 MiB chunks to reduce memory usage
-                DataStream.seek(BlockOffset, os.SEEK_SET)
+                if DebugLevel >= 2:
+                    dprint("Retrieve offset {:#010x} size {}".format(BlockOffset, BlockSize))
                 DataBytes = None
-                for _k in range((BlockSize // READ_SIZE)+1):
-                    if BlockSize > READ_SIZE:
-                        BlockSize -= READ_SIZE
-                        DataBytes = DataStream.read(READ_SIZE)
+                while BlockSize > 0:
+                    if BlockSize > CONST_READ_SIZE:
+                        Size = CONST_READ_SIZE
                     else:
-                        DataBytes = DataStream.read(BlockSize)
+                        Size = BlockSize
+                    if DebugLevel >= 3:
+                        dprint("...offset {:#010x} size {}".format(BlockOffset, Size))
+                    DataBytes = DataStream.read(BlockOffset, Size, DebugLevel)
+                    BlockSize -= Size
+                    BlockOffset += Size
 
                     ## Update hashes with data
                     for _k in Hashes:
                         Hashes[_k]["CMAC"].update(DataBytes)
-                        Hashes[_k]["SHA1"].update(DataBytes)
-                        Hashes[_k]["SHA256"].update(DataBytes)
+                        Hashes[_k]["SHA-1"].update(DataBytes)
+                        Hashes[_k]["SHA-256"].update(DataBytes)
                         Hashes[_k]["MD5"].update(DataBytes)
                 del DataBytes
 
@@ -425,29 +489,33 @@ if __name__ == "__main__":
                         continue
 
                     if FileBlocks[_k]["NEXTOFFSET"] == NextOffset:
-                        dprint("Block #{} completed".format(FileBlocks[_k]["INDEX"]+1))
+                        if DebugLevel >= 2:
+                            dprint("Block #{} completed".format(FileBlocks[_k]["NUMBER"]))
                         BlockOffset = FileBlocks[_k]["OFFSET"]
                         FileBlocks[_k]["CMAC"] = Hashes[BlockOffset]["CMAC"].copy().finalize()
-                        FileBlocks[_k]["SHA1"] = Hashes[BlockOffset]["SHA1"].copy().digest()
-                        FileBlocks[_k]["SHA256"] = Hashes[BlockOffset]["SHA256"].copy().digest()
+                        FileBlocks[_k]["SHA-1"] = Hashes[BlockOffset]["SHA-1"].copy().digest()
+                        FileBlocks[_k]["SHA-256"] = Hashes[BlockOffset]["SHA-256"].copy().digest()
+                        FileBlocks[_k]["MD5"] = Hashes[BlockOffset]["MD5"].copy().digest()
 
-        FileBlocks = sorted(FileBlocks, key=lambda x: (x["INDEX"]))
+        FileBlocks = sorted(FileBlocks, key=lambda x: (x["NUMBER"]))
 
         for _i in range(BlockCount):
-            print("Block #{} offset {:#010x} size {}{}{}".format(_i+1, FileBlocks[_i]["OFFSET"], FileBlocks[_i]["SIZE"], "({})".format(FileBlocks[_i]["ORGSIZE"]) if "ORGSIZE" in FileBlocks[_i] else "", " (SHA only)" if "SHA" in FileBlocks[_i] and FileBlocks[_i]["SHA"] else ""))
+            print("Block #{} offset {:#010x} size {}{}{}".format(_i+1, FileBlocks[_i]["OFFSET"], FileBlocks[_i]["SIZE"], " ({})".format(FileBlocks[_i]["ORGSIZE"]) if "ORGSIZE" in FileBlocks[_i] else "", " (verify {})".format(FileBlocks[_i]["VERIFY"]) if FileBlocks[_i]["VERIFY"] != "DIGEST" else ""))
 
             if "SKIP" in FileBlocks[_i] \
             and FileBlocks[_i]["SKIP"]:
-                print("  WARNING: Skipped as it does not fit file size")
+                if FileSize:
+                    print("  WARNING: Skipped as it does not fit file size")
+                else:
+                    print("  WARNING: Skipped as its size could not be calculated")
                 continue
 
-            if not FileBlocks[_i]["SHA"]:
-                print("  Digest CMAC:", convertBytesToHexString(FileBlocks[_i]["CMAC"]))
-                print("  Digest SHA-1:", "[{}] {}".format(convertBytesToHexString(FileBlocks[_i]["SHA1"][:-8]), convertBytesToHexString(FileBlocks[_i]["SHA1"][-8:])))
-            else:
-                print("  SHA-1:", convertBytesToHexString(FileBlocks[_i]["SHA1"]))
-            print("  SHA-256:".format(_i), convertBytesToHexString(FileBlocks[_i]["SHA256"]))
+            print("  Digest CMAC:", convertBytesToHexString(FileBlocks[_i]["CMAC"]))
+            print("  Digest SHA-1 (last 8 bytes):", convertBytesToHexString(FileBlocks[_i]["SHA-1"][-8:]))
+            print("  SHA-1:", convertBytesToHexString(FileBlocks[_i]["SHA-1"]))
+            print("  SHA-256:".format(_i), convertBytesToHexString(FileBlocks[_i]["SHA-256"]))
             print("  MD5:".format(_i), convertBytesToHexString(FileBlocks[_i]["MD5"]))
 
         ## Close data stream
-        DataStream.close()
+        DataStream.close(DebugLevel)
+        del DataStream

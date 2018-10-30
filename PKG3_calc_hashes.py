@@ -3,7 +3,7 @@
 ### ^^^ see https://www.python.org/dev/peps/pep-0263/
 
 ###
-### PKG3_calc_hashes.py by "windsurfer1122" (c) 2018
+### PKG3_calc_hashes.py (c) 2018 by "windsurfer1122"
 ### Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
 ###
 ### Goals:
@@ -37,6 +37,11 @@
 ###
 ### git master repository at https://github.com/windsurfer1122
 ###
+###
+### Credits:
+### * http://www.psdevwiki.com/
+### * https://playstationdev.wiki/ (previously https://vitadevwiki.com/ & https://www.pspdevwiki.com/)
+###
 
 ###
 ### Python Related Information
@@ -44,7 +49,7 @@
 ### Using a HTTP Proxy: export HTTP_PROXY="http://192.168.0.1:3128"; export HTTPS_PROXY="http://192.168.0.1:1080";
 ###
 ### Python 3 on Debian:
-### May need to install apt packages python3-crypto python3-cryptography, as Python 2 is default on Debian as of version 8
+### May need to install apt packages python3-requests python3-cryptography, as Python 2 is default on Debian as of version 8
 ###
 ### Workarounds for Python 2 (see: http://python-future.org/compatible_idioms.html)
 ### - convert byte string of struct.pack() to bytes
@@ -91,7 +96,7 @@ from cryptography.hazmat.primitives import cmac
 from cryptography.hazmat.primitives.ciphers import algorithms
 
 
-## Debug level for structure initializations (will be reset in "main" code)
+## Debug level for Python initializations (will be reset in "main" code)
 DebugLevel = 0
 
 
@@ -109,7 +114,7 @@ def dprint(*args, **kwargs):  ## debug print
 ## All results will be Unicode and we want all output to be UTF-8
 if sys.getdefaultencoding().lower() != "utf-8":
     if DebugLevel >= 1:
-        eprint("Default Encoding set from {} to UTF-8".format(sys.getdefaultencoding()))
+        dprint("Default Encoding set from {} to UTF-8".format(sys.getdefaultencoding()))
     reload(sys)
     sys.setdefaultencoding("utf-8")
 
@@ -137,7 +142,7 @@ try:
     unicode
 except:
     if DebugLevel >= 1:
-        eprint("Define \"unicode = str\" for Python 3 :(")
+        dprint("Define \"unicode = str\" for Python 3 :(")
     unicode = str
 
 
@@ -357,7 +362,7 @@ if __name__ == "__main__":
     for Source in Arguments:
         print(">>>>>>>>>> PKG Source:", Source)
 
-        ## Initialize per-file variables
+        ## Open PKG source
         DataStream = PkgReader(Source, DebugLevel)
         FileSize = DataStream.getSize(DebugLevel)
         print("File Size:", FileSize)

@@ -4,7 +4,7 @@
 * Calculate PKG HMAC 
   http://www.psdevwiki.com/ps3/PKG_files#PKG_HMAC_algorithm
 * Calculate complete 0x40 digest
-  ? How to compute the NpDrm Signature?
+  * How to compute the NpDrm Signature?
 
 
 <u>Wishlist:</u>

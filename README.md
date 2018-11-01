@@ -18,9 +18,10 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 
 
 <u>Block Examples:</u>
+* To calculate the digest for the main header, use -b 0,128
+You can also use zero (0) and negative sizes to specify the block end relative to the file end.
 * To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use -b 0,-32,sha-1
 * To calculate the SHA-256 for the whole file, use -b 0,0,none
-* To calculate the digest for the main header, use -b 0,128
 
 
 This program is free software: you can redistribute it and/or modify

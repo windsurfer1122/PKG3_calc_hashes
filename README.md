@@ -13,12 +13,13 @@ Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
       * Forward-compatible solutions preferred
 
 For options execute: PKG3_calc_hashes.py -h<br>
-Use at your own risk!
+Use at your own risk!<br>
 If you state URLs then only the necessary bytes are downloaded once, but not stored on disk.
 
 
 <u>Block Examples:</u>
 * To calculate the digest for the main header, use -b 0,128
+
 You can also use zero (0) and negative sizes to specify the block end relative to the file end.
 * To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use -b 0,-32,sha-1
 * To calculate the SHA-256 for the whole file, use -b 0,0,none

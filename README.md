@@ -30,8 +30,8 @@ You can also use zero (0) and negative sizes to specify the block end relative t
   * cryptography
   * requests (normally already present)
 
-On Windows try "pip install <modulename>".<br>
-On Linux install the corresponding packages, e.g. Debian python-<modulename> or python3-<modulename>.
+On Windows try "pip install &lt;modulename&gt;".<br>
+On Linux install the corresponding packages, e.g. Debian python-&lt;modulename&gt; or python3-&lt;modulename&gt;.
 
 
 This program is free software: you can redistribute it and/or modify

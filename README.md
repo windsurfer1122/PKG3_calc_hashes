@@ -2,10 +2,11 @@
 Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
 
 <u>Goals:</u>
-* Build CMAC hashes of data, just like it is used in the 0x40 digest of PKG3 packages (PS3/PSX/PSP/PSV/PSM)<br>
+* Build CMAC hashes for data, just like it is in the 0x40 digest of PKG3 packages (PS3/PSX/PSP/PSV/PSM)<br>
   For definition see http://www.psdevwiki.com/ps3/PKG_files#0x40_digest
 * Additionally build other hashes used in package files, e.g. MD5, SHA-1 and SHA-256
 * Build hashes for multiple data offsets and sizes in a single run, even when interleaved
+* Allow to also hash values (strings) directly and not just data from a file (e.g. hash in PSV update URLs)
 * Support http download streaming to avoid harddisk usage
 * Easy to maintain and no compiler necessary (=interpreter language)
 * Cross platform support
@@ -25,10 +26,11 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 
 You can also use zero (0) and negative sizes to specify the block end relative to the file end.
 * To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use -b 0,-32,sha-1
-* To calculate the SHA-256 for the whole file, use -b 0,0,none
+* To calculate the SHA-256 for a whole file, use -b 0,0,none
 
 ## Requirements
 * Python Modules
+  * [pycryptodomex](https://www.pycryptodome.org/) (note the X at the end)
   * [cryptography](https://cryptography.io/)
   * requests
 
@@ -81,3 +83,7 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+## Additional Credits for Ideas and Several Details
+* http://www.psdevwiki.com/
+* https://playstationdev.wiki/ (previously https://vitadevwiki.com/ & https://www.pspdevwiki.com/)

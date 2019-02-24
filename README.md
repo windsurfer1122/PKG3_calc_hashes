@@ -1,4 +1,4 @@
-# PKG3_calc_hashes.py (c) 2018 by "windsurfer1122"
+# PKG3_calc_hashes.py (c) 2018-2019 by "windsurfer1122"
 Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
 
 <u>Goals:</u>
@@ -20,28 +20,44 @@ For available options execute: PKG3_calc_hashes.py -h<br>
 Use at your own risk!<br>
 If you state URLs then only the necessary bytes are downloaded once, but not stored on disk.
 
+<u>Block Definitions:</u>
+* A block is always specified by a start offset plus an end offset or a size.
+* A size has to be specified with a leading plus sign.
+* Offsets can be negative to define it relative to the file end.
+* Special case is zero for the end offset which is also relative to the file end.
 
 <u>Block Examples:</u>
-* To calculate the digest for the main header, use -b 0,128
+* To calculate the digest for the main header use: -b 0,128 (offsets) or -b 0,+128 (offset plus size)
+* To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use: -b 0,-32
+* To calculate the SHA-256 for the whole package use: -b 0,0
 
-You can also use zero (0) and negative sizes to specify the block end relative to the file end.
-* To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use -b 0,-32,sha-1
-* To calculate the SHA-256 for a whole file, use -b 0,0,none
 
 ## Requirements
 * Python Modules
   * [pycryptodomex](https://www.pycryptodome.org/) (note the X at the end)
   * [cryptography](https://cryptography.io/)
-  * requests
+  * [requests](http://python-requests.org/)
 
 ### Installing on Debian
-1. Most Python modules can be installed via apt.<br>
-Install Python 3 modules via the following apt packages: python3-requests python3-cryptography.<br>
-As Python 2 is the default on Debian and this version should be used, then install apt packages: python-future python-requests python-cryptography.
+1. Python 3, which is the recommended version, and most modules can be installed via apt.<br>
+Install Python 3 and some modules via the following apt packages: `python3 python3-pip python3-requests python3-cryptography`.<br>
 
-1. Install pycryptodomex module via pip<br>
-   Python 3: `pip3 install pycryptodomex`<br>
-   Python 2: `pip2 install pycryptodomex`
+1. Python 2 is the default on Debian, but comes with an outdated pip version until Debian 8.<br>
+Note that with Python 2 ZRIF support is not possible at all.<br>
+__Starting with Debian 9 "Stretch"__ install Python 2 modules via the following apt packages: `python-pip python-future python-requests python-cryptography`.<br>
+For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](https://pypi.org/project/pip/) source:<br>
+   ```
+   apt-get purge python-pip python-dev python-future
+   apt-get autoremove
+   wget https://bootstrap.pypa.io/get-pip.py
+   python2 get-pip.py
+   pip2 install --upgrade future
+   ```
+
+1. Install further necessary Python modules via pip.
+   * Install pycryptodomex module:
+     * Python 3: `pip3 install --upgrade pycryptodomex`
+     * Python 2: `pip2 install --upgrade pycryptodomex`
 
 ### Installing on Windows
 1. Install Python<br>
@@ -54,12 +70,12 @@ As Python 2 is the default on Debian and this version should be used, then insta
    * Advanced Options
      * Install for all users
 
-1. Install necessary Python modules
-   * Start an elevated(!!!) Command Prompt (Run As Admin via Right Click)
-   * Update PIP first: `python -m pip install --upgrade pip`
-   * Install requests module: `pip install requests`
-   * Install pycryptodomex module: `pip install pycryptodomex`
-   * Install cryptography module: `pip install cryptography`
+1. Install necessary Python modules via pip.
+   * Start an __elevated(!!!)__ Command Prompt (Run As Admin via Right Click)
+   * Update PIP itself first: `python -m pip install --upgrade pip`
+   * Install requests module: `pip install --upgrade requests`
+   * Install pycryptodomex module: `pip install --upgrade pycryptodomex`
+   * Install cryptography module: `pip install --upgrade cryptography`
    * Exit Command Prompt: `exit`
 
 Executing python scripts can be done via Windows Explorer or a Command Prompt. Normally no elevation is necessary for script execution, except when the python script wants to change something in the system internals.
@@ -85,5 +101,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Additional Credits for Ideas and Several Details
-* http://www.psdevwiki.com/
 * https://playstationdev.wiki/ (previously https://vitadevwiki.com/ & https://www.pspdevwiki.com/)
+* http://www.psdevwiki.com/
+* CelesteBlue

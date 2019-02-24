@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8; tab-width: 4; indent-tabs-mode: nil; py-indent-offset: 4 -*-
 ### ^^^ see https://www.python.org/dev/peps/pep-0263/
 
 ###
-### PKG3_calc_hashes.py (c) 2018 by "windsurfer1122"
+### PKG3_calc_hashes.py (c) 2018-2019 by "windsurfer1122"
 ### Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
 ### Use at your own risk!
 ###
@@ -12,18 +12,18 @@
 ### git master repository at https://github.com/windsurfer1122
 ### Read README.md for more information including Python requirements and more
 ###
-### Workarounds for Python 2 (see: http://python-future.org/compatible_idioms.html)
-### - use of struct.unpack() instead of int.from_bytes()
-### - convert byte string of struct.pack() to bytes
-### - use future print function
-### - use future unicode literals
+### Python 2 backward-compatible workarounds:
+### - handle prefix in kwargs manually
+### - set system default encoding to UTF-8
+### - define unicode() for Python 3 like in Python 2 (ugly)
+### - convert byte string of struct.pack()/.unpack() to bytearray()
 ###
-### Adopted PEP8 Coding Style:
-### * [joined_]lower for attributes, variables
-### * ALL_CAPS for constants
-### * StudlyCaps for classes
+### Adopted PEP8 Coding Style: (see https://www.python.org/dev/peps/pep-0008/)
+### * (differs to PEP8) Studly_Caps_With_Underscores for global variables
 ### * (differs to PEP8) mixedCase for functions, methods
-### * (differs to PEP8) StudlyCaps global variables
+### * lower_case_with_underscores for attributes, variables
+### * UPPER_CASE_WITH_UNDERSCORES for constants
+### * StudlyCaps for classes
 ###
 
 ###
@@ -41,18 +41,27 @@
 ### along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ###
 
-### Python 2 workarounds:
+### Python 2 future-compatible workarounds: (see: http://python-future.org/compatible_idioms.html)
 ## a) prevent interpreting print(a,b) as a tuple plus support print(a, file=sys.stderr)
 from __future__ import print_function
 ## b) interpret all literals as unicode
 from __future__ import unicode_literals
 ## c) same division handling ( / = float, // = integer)
 from __future__ import division
-## d) interpret long as int
+## d) interpret long as int, support int.from_bytes()
 from builtins import int
 ## e) support bytes()
 from builtins import bytes
 
+
+## Version definition
+__version__ = "2019.02.24"
+__author__ = "https://github.com/windsurfer1122/PKG3_calc_hashes"
+__license__ = "GPL"
+__copyright__ = "Copyright 2018-2019, windsurfer1122"
+
+
+## Imports
 import sys
 import struct
 import io
@@ -63,24 +72,49 @@ import os
 import getopt
 import re
 import traceback
+import json
 import random
+import base64
+import xml.etree.ElementTree
 
 import Cryptodome.Cipher.AES
 import Cryptodome.Hash
 
 
 ## Debug level for Python initializations (will be reset in "main" code)
-DebugLevel = 0
+Debug_Level = 0
 
 
 ## Error and Debug print to stderr
 ## https://stackoverflow.com/questions/5574702/how-to-print-to-stderr-in-python
 def eprint(*args, **kwargs):  ## error print
+    ## Python 2 workaround: handle prefix in kwargs manually
+    #def eprint(*args, prefix="[ERROR] ", **kwargs):  ## Python 3 only
+    if "prefix" in kwargs:
+        prefix = kwargs["prefix"]
+        del kwargs["prefix"]
+    else:
+        prefix="[ERROR] "
+    #
+    if not prefix is None \
+    and prefix != "":
+        print(prefix, file=sys.stderr, end="")
     print(*args, file=sys.stderr, **kwargs)
 
 def dprint(*args, **kwargs):  ## debug print
-    if DebugLevel:
-        print("[debug]", *args, file=sys.stderr, **kwargs)
+    if Debug_Level:
+        ## Python 2 workaround: handle prefix in kwargs manually
+        #def dprint(*args, prefix="[debug] ", **kwargs):  ## Python 3 only
+        if "prefix" in kwargs:
+            prefix = kwargs["prefix"]
+            del kwargs["prefix"]
+        else:
+            prefix="[debug] "
+        #
+        if not prefix is None \
+        and prefix != "":
+            print(prefix, file=sys.stderr, end="")
+        print(*args, file=sys.stderr, **kwargs)
 
 
 ## Enhanced TraceBack
@@ -107,34 +141,52 @@ def print_exc_plus():
             #printer! Calling str() on an unknown object could cause an
             #error we don't want.
             try:
-                eprint(value)
+                eprint(value, prefix=None)
             except:
-                eprint("<ERROR WHILE PRINTING VALUE>")
+                eprint("<ERROR WHILE PRINTING VALUE>", prefix=None)
 
     traceback.print_exc()
 
 
-## Python 2 workaround: set system default encoding to UTF-8 like in Python 3
-## All results will be Unicode and we want all output to be UTF-8
-if sys.getdefaultencoding().lower() != "utf-8":
-    if DebugLevel >= 1:
-        dprint("Default Encoding set from {} to UTF-8".format(sys.getdefaultencoding()))
-    reload(sys)
-    sys.setdefaultencoding("utf-8")
+## General debug information related to Python
+if Debug_Level >= 1:
+    dprint("Python Version", sys.version)
 
-## General debug information related to Python and Unicode
-if DebugLevel >= 1:
+## Python 2/Windows workaround: set system default encoding to UTF-8 like in Python 3
+## All results will be Unicode and we want all output to be UTF-8
+try:
+    reload
+except NameError:
+    ## Python 3.4+
+    from importlib import reload
+reload(sys)
+if sys.getdefaultencoding().lower() != "utf-8":
+    if Debug_Level >= 1:
+        dprint("Default Encoding setting from {} to UTF-8".format(sys.getdefaultencoding()))
+    sys.setdefaultencoding("utf-8")
+if sys.stdout.encoding \
+and sys.stdout.encoding.lower() != "utf-8":
+    if Debug_Level >= 1:
+        dprint("STDOUT Encoding setting from {} to UTF-8".format(sys.stdout.encoding))
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr.encoding \
+and sys.stderr.encoding.lower() != "utf-8":
+    if Debug_Level >= 1:
+        dprint("STDERR Encoding setting from {} to UTF-8".format(sys.stderr.encoding))
+    sys.stderr.reconfigure(encoding="utf-8")
+
+## General debug information related to Unicode
+if Debug_Level >= 1:
     ## List encodings
-    dprint("Python Version {}".format(sys.version))
-    dprint("DEFAULT Encoding {}".format(sys.getdefaultencoding()))
-    dprint("LOCALE Encoding {}".format(locale.getpreferredencoding()))
+    dprint("DEFAULT Encoding", sys.getdefaultencoding())
+    dprint("LOCALE Encoding", locale.getpreferredencoding())
     dprint("STDOUT Encoding {} Terminal {}".format(sys.stdout.encoding, sys.stdout.isatty()))
     dprint("STDERR Encoding {} Terminal {}".format(sys.stderr.encoding, sys.stderr.isatty()))
-    dprint("FILESYS Encoding {}".format(sys.getfilesystemencoding()))
+    dprint("FILESYS Encoding", sys.getfilesystemencoding())
     value = ""
     if "PYTHONIOENCODING" in os.environ:
         value = os.environ["PYTHONIOENCODING"]
-    dprint("PYTHONIOENCODING={}".format(value))
+    dprint("PYTHONIOENCODING=", value, sep="")
     ## Check Unicode
     dprint("ö ☺ ☻")
 
@@ -145,18 +197,18 @@ if DebugLevel >= 1:
 try:
     unicode
 except:
-    if DebugLevel >= 1:
+    if Debug_Level >= 1:
         dprint("Define \"unicode = str\" for Python 3 :(")
     unicode = str
 
 ### pycryptodome/x <3.7.2 CMAC error workaround
 ### https://github.com/Legrandin/pycryptodome/issues/238
 Version = re.match("(\d+)\.(\d+)", Cryptodome.__version__)
-VersionCheck = [ int(Version.group(1)), int(Version.group(2)) ]
+Version_Check = [ int(Version.group(1)), int(Version.group(2)) ]
 #
-if ( VersionCheck[0] == 3 \
-     and VersionCheck[1] > 6 ) \
-or VersionCheck[0] > 3:
+if (Version_Check[0] == 3 \
+    and Version_Check[1] > 6) \
+or Version_Check[0] > 3:
     dprint("pycryptodome/x", Cryptodome.__version__, "is good")
     ### https://www.pycryptodome.org/en/latest/src/hash/cmac.html
     def newCMAC(key):
@@ -177,7 +229,13 @@ else:
 
 
 ## Generic Definitions
-CONST_READ_SIZE = random.randint(10,100) * 0x100000  ## Read in 10-100 MiB chunks to reduce memory usage
+CONST_READ_SIZE = random.randint(50,100) * 0x100000  ## Read in 50-100 MiB chunks to reduce memory usage and swapping
+CONST_READ_AHEAD_SIZE = 128 * 0x400 ## Read first 128 KiB to reduce read requests (fits header of known PS3/PSX/PSP/PSV/PSM packages; Kib/Mib = 0x400/0x100000; biggest header + Items Info found was 2759936 = 0x2a1d00 = ~2.7 MiB)
+#
+CONST_USER_AGENT_PS3 = "Mozilla/5.0 (PLAYSTATION 3; 4.84)"
+#CONST_USER_AGENT_PSP = ""
+CONST_USER_AGENT_PSV = " libhttp/3.70 (PS Vita)"
+CONST_USER_AGENT_PS4 = "Download/1.00 libhttp/6.20 (PlayStation 4)"
 
 ##
 ## PKG3 Definitions
@@ -188,103 +246,432 @@ CONST_READ_SIZE = random.randint(10,100) * 0x100000  ## Read in 10-100 MiB chunk
 ## https://playstationdev.wiki/psvitadevwiki/index.php?title=Keys#Content_PKG_Keys
 CONST_PKG3_CONTENT_KEYS = {
   -1: { "KEY": bytes.fromhex("00000000000000000000000000000000"), "DESC": "Zero key", },
-   0: { "KEY": bytes.fromhex("2e7b71d7c9c9a14ea3221f188828b8f8"), "DESC": "PS3",      },
-   1: { "KEY": bytes.fromhex("07f2c68290b50d2c33818d709b60e62b"), "DESC": "PSX/PSP",  },
-   2: { "KEY": bytes.fromhex("e31a70c9ce1dd72bf3c0622963f2eccb"), "DESC": "PSV",      "DERIVE": True, },
-   3: { "KEY": bytes.fromhex("423aca3a2bd5649f9686abad6fd8801f"), "DESC": "Unknown",  "DERIVE": True, },
-   4: { "KEY": bytes.fromhex("af07fd59652527baf13389668b17d9ea"), "DESC": "PSM",      "DERIVE": True, },
+   0: { "KEY": "Lntx18nJoU6jIh8YiCi4+A==", "DESC": "PS3",     },
+   1: { "KEY": "B/LGgpC1DSwzgY1wm2DmKw==", "DESC": "PSX/PSP", },
+   2: { "KEY": "4xpwyc4d1yvzwGIpY/Lsyw==", "DESC": "PSV",     "DERIVE": True, },
+   3: { "KEY": "QjrKOivVZJ+Whqutb9iAHw==", "DESC": "Unknown", "DERIVE": True, },
+   4: { "KEY": "rwf9WWUlJ7rxM4lmixfZ6g==", "DESC": "PSM",     "DERIVE": True, },
 }
+for Key in CONST_PKG3_CONTENT_KEYS:
+    if isinstance(CONST_PKG3_CONTENT_KEYS[Key]["KEY"], unicode):
+        CONST_PKG3_CONTENT_KEYS[Key]["KEY"] = base64.standard_b64decode(CONST_PKG3_CONTENT_KEYS[Key]["KEY"])
+del Key
 ## --> PKG Update Keys
 CONST_PKG3_UPDATE_KEYS = {
-   2: { "KEY": bytes.fromhex("e5e278aa1ee34082a088279c83f9bbc806821c52f2ab5d2b4abd995450355114"), "DESC": "PSV", },
+   2: { "KEY": "5eJ4qh7jQIKgiCecg/m7yAaCHFLyq10rSr2ZVFA1URQ=", "DESC": "PSV", },
 }
+for Key in CONST_PKG3_UPDATE_KEYS:
+    if isinstance(CONST_PKG3_UPDATE_KEYS[Key]["KEY"], unicode):
+        CONST_PKG3_UPDATE_KEYS[Key]["KEY"] = base64.standard_b64decode(CONST_PKG3_UPDATE_KEYS[Key]["KEY"])
+del Key
 
 
 def convertBytesToHexString(data, format="", sep=" "):
     if isinstance(data, int):
         data = struct.pack(format, data)
-    ## Python 2 workaround: convert str to bytes
+    ## Python 2 workaround: convert byte string of struct.pack()/.unpack() to bytearray()
     if isinstance(data, str):
-        data = bytes(data)
+        data = bytearray(data)
     #
     return sep.join(["%02x" % b for b in data])
 
 
-class PkgReader():
-    def __init__(self, source, headers, debug_level=0):
+class PkgInputReader():
+    def __init__(self, source, func_debug_level=0):
         self._source = source
+        self._pkg_name = None
         self._size = None
+        self._multipart = False
+        self._partscount = None
+        self._parts = []
+        #
+        self._buffer = None
+        self._buffer_size = 0
+        #
+        self._headers = {"User-Agent": CONST_USER_AGENT_PS3}  ## Default to PS3 headers (fits PS3/PSX/PSP/PSV packages, but not PSM packages for PSV)
 
-        if self._source.startswith("http:") \
-        or self._source.startswith("https:"):
-            if debug_level >= 2:
-                dprint("Opening source as URL data stream")
-            self._stream_type = "requests"
-            ## Persistent session
-            ## http://docs.python-requests.org/en/master/api/#request-sessions
-            try:
-                self._data_stream = requests.Session()
-            except:
-                eprint("\nERROR: {}: Could not create HTTP/S session for PKG URL".format(sys.argv[0]))
+        ## Check for multipart package
+        ## --> XML
+        if self._source.endswith(".xml"):
+            input_stream = None
+            xml_root = None
+            xml_element = None
+            if self._source.startswith("http:") \
+            or self._source.startswith("https:"):
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Opening source as URL XML data stream")
+                try:
+                    input_stream = requests.get(self._source, headers=self._headers)
+                except:
+                    eprint("[INPUT] Could not open URL", self._source)
+                    eprint("", prefix=None)
+                    sys.exit(2)
+                xml_root = xml.etree.ElementTree.fromstring(input_stream.text)
+                input_stream.close()
+            else:
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Opening source as FILE XML data stream")
+                try:
+                    input_stream = io.open(self._source, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+                except:
+                    eprint("[INPUT] Could not open FILE", self._source)
+                    eprint("", prefix=None)
+                    sys.exit(2)
+                xml_root = xml.etree.ElementTree.fromstring(input_stream.read())
+                input_stream.close()
+            del input_stream
+            ## Check for known XML
+            if xml_root.tag != CONST_PKG3_XML_ROOT:
+                eprint("[INPUT] Not a known PKG XML file ({} <> {})".format(xml_root.tag, CONST_PKG3_XML_ROOT), self._source)
+                eprint("", prefix=None)
                 sys.exit(2)
-            self._data_stream.headers = headers
-            response = self._data_stream.head(self._source)
-            if debug_level >= 2:
-                dprint(response)
-                dprint("Response headers:", response.headers)
-            if "content-length" in response.headers:
-                self._size = int(response.headers["content-length"])
-        else:
-            if debug_level >= 2:
-                dprint("Opening source as FILE data stream")
-            self._stream_type = "file"
-            try:
-                self._data_stream = io.open(self._source, mode="rb", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
-            except:
-                eprint("\nERROR: {}: Could not open PKG FILE {}".format(sys.argv[0], self._source))
-                sys.exit(2)
+            ## Determine values from XML data
+            xml_element = xml_root.find("file_name")
+            if not xml_element is None:
+                self._pkg_name = xml_element.text.strip()
             #
-            self._data_stream.seek(0, os.SEEK_END)
-            self._size = self._data_stream.tell()
+            xml_element = xml_root.find("file_size")
+            if not xml_element is None:
+                self._size = int(xml_element.text.strip())
+            #
+            xml_element = xml_root.find("number_of_split_files")
+            if not xml_element is None:
+                self._partscount = int(xml_element.text.strip())
+                if self._partscount > 1:
+                    self._multipart = True
+            ## Determine file parts from XML data
+            for xml_element in xml_root.findall("pieces"):
+                xml_element.attrib["INDEX"] = int(xml_element.attrib["index"])
+                del xml_element.attrib["index"]
+                #
+                xml_element.attrib["SIZE"] = int(xml_element.attrib["file_size"])
+                del xml_element.attrib["file_size"]
+                #
+                self._parts.append(xml_element.attrib)
+            #
+            self._parts = sorted(self._parts, key=lambda x: (x["INDEX"]))
+            #
+            offset = 0
+            file_part = None
+            for file_part in self._parts:
+                file_part["START_OFS"] = offset
+                file_part["END_OFS"] = file_part["START_OFS"] + file_part["SIZE"]
+                offset += file_part["SIZE"]
+                #
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Pkg Part #{} Offset {:#012x} Size {} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["SIZE"], file_part["url"]))
+            del file_part
+            del offset
+            #
+            del xml_element
+            del xml_root
+        ## --> JSON
+        elif self._source.endswith(".json"):
+            self._headers = {"User-Agent": CONST_USER_AGENT_PS4}  ## Switch to PS4 headers
+            input_stream = None
+            json_data = None
+            if self._source.startswith("http:") \
+            or self._source.startswith("https:"):
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Opening source as URL JSON data stream")
+                try:
+                    input_stream = requests.get(self._source, headers=self._headers)
+                except:
+                    eprint("[INPUT] Could not open URL", self._source)
+                    eprint("", prefix=None)
+                    sys.exit(2)
+                json_data = input_stream.json()
+                input_stream.close()
+            else:
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Opening source as FILE JSON data stream")
+                try:
+                    input_stream = io.open(self._source, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+                except:
+                    eprint("[INPUT] Could not open FILE", self._source)
+                    eprint("", prefix=None)
+                    sys.exit(2)
+                json_data = json.load(input_stream)
+                input_stream.close()
+            del input_stream
+            #
+            ## Check for known JSON
+            if not "pieces" in json_data \
+            or not json_data["pieces"][0] \
+            or not "url" in json_data["pieces"][0]:
+                eprint("[INPUT] JSON source does not look like PKG meta data (missing [pieces][0])", self._source)
+                eprint("", prefix=None)
+                sys.exit(2)
+            ## Determine values from JSON data
+            if "originalFileSize" in json_data:
+                self._size = json_data["originalFileSize"]
+            #
+            if "numberOfSplitFiles" in json_data:
+                self._partscount = json_data["numberOfSplitFiles"]
+                if self._partscount > 1:
+                    self._multipart = True
+            ## Determine file parts from JSON data
+            if "pieces" in json_data:
+                json_data["pieces"] = sorted(json_data["pieces"], key=lambda x: (x["fileOffset"]))
+                #
+                count = 0
+                file_part = None
+                for file_part in json_data["pieces"]:
+                    if not self._pkg_name:
+                        if file_part["url"].startswith("http:") \
+                        or file_part["url"].startswith("https:"):
+                            self._pkg_name = os.path.basename(requests.utils.urlparse(file_part["url"]).path).strip()
+                        else:
+                            self._pkg_name = os.path.basename(file_part["url"]).strip()
+                        #
+                        self._pkg_name = re.sub(r"_[0-9]+\.pkg$", r".pkg", self._pkg_name, flags=re.UNICODE)
+                    #
+                    file_part["INDEX"] = count
+                    count += 1
+                    #
+                    file_part["START_OFS"] = file_part["fileOffset"]
+                    del file_part["fileOffset"]
+                    #
+                    file_part["SIZE"] = file_part["fileSize"]
+                    del file_part["fileSize"]
+                    #
+                    file_part["END_OFS"] = file_part["START_OFS"] + file_part["SIZE"]
+                    #
+                    self._parts.append(file_part)
+                    #
+                    if func_debug_level >= 2:
+                        dprint("[INPUT] Pkg Part #{} Offset {:#012x} Size {} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["SIZE"], file_part["url"]))
+                del file_part
+                del count
+            #
+            del json_data
+        else:
+            if self._source.startswith("http:") \
+            or self._source.startswith("https:"):
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Using source as URL PKG data stream")
+                self._pkg_name = os.path.basename(requests.utils.urlparse(self._source).path).strip()
+            else:
+                if func_debug_level >= 2:
+                    dprint("[INPUT] Using source as FILE PKG data stream")
+                self._pkg_name = os.path.basename(self._source).strip()
+            #
+            self._multipart = False
+            self._partscount = 1
+            #
+            file_part = {}
+            file_part["INDEX"] = 0
+            file_part["START_OFS"] = 0
+            file_part["url"] = self._source
+            self._parts.append(file_part)
+            if func_debug_level >= 2:
+                dprint("[INPUT] Pkg Part #{} Offset {:#012x} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["url"]))
+            del file_part
+            #
+            self.open(self._parts[0], func_debug_level=max(0,func_debug_level))
+            if "SIZE" in self._parts[0]:
+                self._size = self._parts[0]["SIZE"]
 
-        if debug_level >= 3:
-            dprint("Data stream is of class {}".format(self._data_stream.__class__.__name__))
+        read_size = CONST_READ_AHEAD_SIZE
+        if read_size > self._size:
+            read_size = self._size
+        if read_size > 0:
+            self._buffer = self.read(0, read_size, func_debug_level=max(0,func_debug_level))
+            self._buffer_size = len(self._buffer)
+            if func_debug_level >= 2:
+                dprint("[INPUT] Buffered first {} bytes of package".format(self._buffer_size), "(max {})".format(CONST_READ_AHEAD_SIZE) if self._buffer_size != CONST_READ_AHEAD_SIZE else "")
 
-    def getSize(self, debug_level=0):
+    def getSize(self, func_debug_level=0):
         return self._size
 
-    def read(self, offset, size, debug_level=0):
-        if self._stream_type == "file":
-            self._data_stream.seek(offset, os.SEEK_SET)
-            return self._data_stream.read(size)
-        elif self._stream_type == "requests":
-            ## Send request in persistent session
-            ## http://docs.python-requests.org/en/master/api/#requests.Session.get
-            ## http://docs.python-requests.org/en/master/api/#requests.request
-            reqheaders={"Range": "bytes={}-{}".format(offset, offset + size - 1)}
-            response = self._data_stream.get(self._source, headers=reqheaders)
-            return response.content
+    def getSource(self, func_debug_level=0):
+        return self._source
 
-    def close(self, debug_level=0):
-        return self._data_stream.close()
+    def getPkgName(self, func_debug_level=0):
+        return self._pkg_name
+
+    def open(self, file_part, func_debug_level=0):
+        ## Check if already opened
+        if "STREAM" in file_part:
+            return
+
+        part_size = None
+        if file_part["url"].startswith("http:") \
+        or file_part["url"].startswith("https:"):
+            if func_debug_level >= 3:
+                dprint("[INPUT] Opening Pkg Part #{} as URL PKG data stream".format(file_part["INDEX"]))
+            ## Persistent session
+            ## http://docs.python-requests.org/en/master/api/#request-sessions
+            file_part["STREAM_TYPE"] = "requests"
+            try:
+                file_part["STREAM"] = requests.Session()
+            except:
+                eprint("[INPUT] Could not create HTTP/S session for PKG URL", file_part["url"])
+                eprint("", prefix=None)
+                sys.exit(2)
+            #
+            file_part["STREAM"].headers = self._headers
+            response = file_part["STREAM"].head(file_part["url"])
+            if func_debug_level >= 3:
+                dprint("[INPUT]", response)
+                dprint("[INPUT] Response headers:", response.headers)
+            if "content-length" in response.headers:
+                part_size = int(response.headers["content-length"])
+        else:
+            if func_debug_level >= 3:
+                dprint("[INPUT] Opening Pkg Part #{} as FILE PKG data stream".format(file_part["INDEX"]))
+            #
+            file_part["STREAM_TYPE"] = "file"
+            try:
+                file_part["STREAM"] = io.open(file_part["url"], mode="rb", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+            except:
+                eprint("[INPUT] Could not open PKG FILE", file_part["url"])
+                eprint("", prefix=None)
+                sys.exit(2)
+            #
+            file_part["STREAM"].seek(0, os.SEEK_END)
+            part_size = file_part["STREAM"].tell()
+
+        ## Check file size
+        if not part_size is None:
+            if not "SIZE" in file_part:
+                file_part["SIZE"] = part_size
+                file_part["END_OFS"] = file_part["START_OFS"] + file_part["SIZE"]
+            else:
+                if part_size != file_part["SIZE"]:
+                    eprint("[INPUT] File size differs from meta data {} <> {}", part_size, file_part["SIZE"])
+                    eprint("", prefix=None)
+                    sys.exit(2)
+
+        if func_debug_level >= 3:
+            dprint("[INPUT] Data stream is of class", file_part["STREAM"].__class__.__name__)
+
+    def read(self, offset, size, func_debug_level=0):
+        result = bytearray()
+        read_offset = offset
+        read_size = size
+
+        if read_size < 0:
+            raise ValueError("Negative read size {}".format(read_size))
+
+        if self._buffer \
+        and self._buffer_size > read_offset \
+        and read_size > 0:
+            read_buffer_size = read_size
+            if (read_offset+read_buffer_size) > self._buffer_size:
+                read_buffer_size = self._buffer_size-read_offset
+            #
+            if func_debug_level >= 3:
+                dprint("[INPUT] Get offset {:#012x} size {}/{} bytes from buffer".format(read_offset, read_buffer_size, size))
+            #
+            result.extend(self._buffer[read_offset:read_offset+read_buffer_size])
+            #
+            read_offset += read_buffer_size
+            read_size -= read_buffer_size
+
+        count = 0
+        lastcount = -1
+        while read_size > 0:
+            while count < self._partscount \
+            and self._parts[count]["START_OFS"] <= read_offset:
+                count += 1
+            count -= 1
+            if lastcount == count:  ## Avoid endless loop
+                raise ValueError("[INPUT] Read offset {:#012x} out of range (max. {:#012x})".format(read_offset, self._size-1))
+            lastcount = count
+            #
+            file_part = self._parts[count]
+            #
+            file_offset = read_offset - file_part["START_OFS"]
+            #
+            read_buffer_size = read_size
+            if (read_offset+read_buffer_size) > file_part["END_OFS"]:
+                read_buffer_size = file_part["END_OFS"]-read_offset
+            #
+            if func_debug_level >= 3:
+                dprint("[INPUT] Read offset {:#012x} size {}/{} bytes from Pkg Part #{} Offset {:#012x}".format(read_offset, read_buffer_size, size, file_part["INDEX"], file_offset))
+            #
+            self.open(file_part, func_debug_level=max(0,func_debug_level))
+            #
+            if file_part["STREAM_TYPE"] == "file":
+                file_part["STREAM"].seek(file_offset, os.SEEK_SET)
+                result.extend(file_part["STREAM"].read(read_buffer_size))
+                ## supports the following.
+                ## * offset=9000 + size=-1 => all bytes from offset 9000 to the end
+                ## does *NOT* support the following, have to calculate size from file size.
+                ## * bytes=-32 => last 32 bytes
+            elif file_part["STREAM_TYPE"] == "requests":
+                ## Send request in persistent session
+                ## http://docs.python-requests.org/en/master/api/#requests.Session.get
+                ## http://docs.python-requests.org/en/master/api/#requests.request
+                ## https://www.rfc-editor.org/info/rfc7233
+                ## supports the following.
+                ## * bytes=9000- => all bytes from offset 9000 to the end
+                ## * bytes=-32 => last 32 bytes
+                reqheaders={"Range": "bytes={}-{}".format(file_offset, (file_offset + read_buffer_size - 1) if read_buffer_size > 0 else "")}
+                response = file_part["STREAM"].get(file_part["url"], headers=reqheaders)
+                result.extend(response.content)
+            #
+            read_offset += read_buffer_size
+            read_size -= read_buffer_size
+
+        return result
+
+    def close(self, func_debug_level=0):
+        for file_part in self._parts:
+            if not "STREAM" in file_part:
+                continue
+
+            file_part["STREAM"].close()
+            del file_part["STREAM"]
+
+        return
+
+
+def displayBlock(block, print_func=print, **kwargs):
+    if "prefix" in kwargs \
+    and print_func == print:
+        del kwargs["prefix"]
+    #
+    print_func("Block #{}:".format(block["NUMBER"]), end="", **kwargs)
+    #
+    if print_func != print:
+        kwargs["prefix"] = None
+    #
+    print_func(" StartOfs {:+#013x}".format(block["STARTOFS"]), end="", **kwargs)
+    if "ORGSTARTOFS" in block:
+        print_func(" ({})".format(block["ORGSTARTOFS"]), end="", **kwargs)
+    #
+    if not block["SIZE"] is None:
+        print_func(" Size +{}".format(block["SIZE"]), end="", **kwargs)
+    #
+    if not block["ENDOFS"] is None:
+        print_func(" EndOfs {:+#013x}".format(block["ENDOFS"]), end="", **kwargs)
+    if "ORGENDOFS" in block:
+        print_func(" ({})".format(block["ORGENDOFS"]), end="", **kwargs)
+    #
+    if not block["VERIFY"] is None:
+        print_func(" Verify {}".format(block["VERIFY"]), end="", **kwargs)
+    #
+    print_func(**kwargs)
 
 
 def showUsage():
-    eprint("Usage: {} [options] <Path or URL to PKG file|value> [<PATH|URL|value> ...]".format(sys.argv[0]))
-    eprint("  -h/--help       Show this help")
-    eprint("  --values        Non-options parameters are not used as file path or URL.")
-    eprint("                  They are used directly as data encoded in UTF-8.")
-    eprint("                  Blocks definitions are ignored.")
-    eprint("  -b/--block=<offset>,<size>[,<verifyhash:sha-1|none>]")
-    eprint("                  Data Block to build hashes for (CMAC, SHA-1, etc.)")
-    eprint("                  Optional verify hash statement sha-1 will check SHA-1 instead")
-    eprint("                  of CMAC digest, e.g. file hash at the end of each pkg file")
-    eprint("  --extra         Calculate extra hashes. All types with all known keys.")
-    eprint("  -d/--debug=<n>  Debug verbosity level")
-    eprint("                    0 = No debug info [default]")
-    eprint("                    1 = Show calculated file block offsets and sizes")
-    eprint("                    2 = Additionally show read actions")
-    eprint("                    3 = Additionally show parsed options and internal stuff")
+    eprint("Usage: {} [options] <Path or URL to PKG file|value> [<PATH|URL|value> ...]".format(sys.argv[0]), prefix=None)
+    eprint("  -h/--help       Show this help", prefix=None)
+    eprint("  --values        Non-options parameters are not used as file path or URL.", prefix=None)
+    eprint("                  They are used directly as data encoded in UTF-8.", prefix=None)
+    eprint("                  Blocks definitions are ignored.", prefix=None)
+    eprint("  -b/--block=<startofs>,<+size|[-]endofs>[,<verifyhash:digest|sha-1|none>]", prefix=None)
+    eprint("                  Data Block to build hashes for (CMAC, SHA-1, etc.)", prefix=None)
+    #eprint("                  Optional verify hash statement to check SHA-1 or CMAC digest", prefix=None)
+    #eprint("  --verify        Verify the calculated hashes as defined for each block.", prefix=None)
+    eprint("  --extra         Calculate extra hashes. All types with all known keys.", prefix=None)
+    eprint("  -d/--debug=<n>  Debug verbosity level", prefix=None)
+    eprint("                    0 = No debug info [default]", prefix=None)
+    eprint("                    1 = Show calculated file block offsets and sizes", prefix=None)
+    eprint("                    2 = Additionally show read actions", prefix=None)
+    eprint("                    3 = Additionally show parsed options and internal stuff", prefix=None)
 
 
 ## Global code
@@ -292,13 +679,13 @@ if __name__ == "__main__":
     try:
         ## Initialize (global) variables changeable by command line parameters
         ## Global Debug [Verbosity] Level: can be set via '-d'/'--debug='
-        DebugLevel = 0
+        Debug_Level = 0
         ##
-        Values = False
+        Do_Values = False
         Blocks = []
-        ExtraHashes = False
-        ShowUsage = False
-        ExitCode = 0
+        Extra_Hashes = False
+        Show_Usage = False
+        Exit_Code = 0
 
         ## Check parameters from command line
         try:
@@ -309,522 +696,599 @@ if __name__ == "__main__":
             showUsage()
             sys.exit(2)
         #
-        for Option, OptionValue in Options:
+        Option = None
+        Option_Value = None
+        Block_Number = 0
+        Block = None
+        Block_Count = None
+        Skip = None
+        Block_StartOfs = None
+        Block_Size = None
+        Block_EndOfs = None
+        for Option, Option_Value in Options:
             if Option in ("-h", "--help"):
-                ShowUsage = True
+                Show_Usage = True
             elif Option in ("-b", "--block"):
-                Block = OptionValue.split(",")
-                BlockCount = len(Block)
-                if BlockCount < 2 \
-                or BlockCount > 3:
-                    eprint("Option {}: block value {} is not valid (offset,size[,verifyhash])".format(Option, OptionValue))
-                    ExitCode = 2
+                Block_Number += 1
+                Block = Option_Value.split(",")
+                Block_Count = len(Block)
+                if Block_Count < 2 \
+                or Block_Count > 3:
+                    eprint("Option {} #{}: block value {} is not valid (offset,size[,verifyhash])".format(Option, Block_Number, Option_Value))
+                    Exit_Code = 2
                     continue
 
                 Skip = False
+                #
                 try:
-                    BlockOffset = int(Block[0], 0)
-                    if BlockOffset < 0:
-                        eprint("Option {}: offset value {} is not valid".format(Option, BlockOffset))
-                        ExitCode = 2
-                        Skip = True
+                    Block_StartOfs = int(Block[0], 0)
                 except:
-                    eprint("Option {}: offset value {} is not a number".format(Option, Block[0]))
-                    ExitCode = 2
+                    eprint("Option {} #{}: start offset value {} is not a number".format(Option, Block_Number, Block[0]))
+                    Exit_Code = 2
                     Skip = True
+                #
                 try:
-                    BlockSize = int(Block[1], 0)
+                    if Block[1][0] == "+":
+                        Block_Size = int(Block[1], 0)
+                        Block_EndOfs = None
+                        #
+                        if Block_Size <= 0:
+                            eprint("Option {} #{}: size value {} is not valid".format(Option, Block_Number, Block_Size))
+                            Exit_Code = 2
+                            Skip = True
+                    else:
+                        Block_Size = None
+                        Block_EndOfs = int(Block[1], 0)
                 except:
-                    eprint("Option {}: size value {} is not a number".format(Option, Block[1]))
-                    ExitCode = 2
+                    eprint("Option {} #{}: size/end offset value {} is not a number".format(Option, Block_Number, Block[1]))
+                    Exit_Code = 2
                     Skip = True
-
+                #
                 if Skip:
                     continue
 
-                Index = len(Blocks)
-                Blocks.append({})
-                Blocks[Index]["NUMBER"] = Index + 1
-                Blocks[Index]["OFFSET"] = BlockOffset
-                Blocks[Index]["SIZE"] = BlockSize
-                Blocks[Index]["VERIFY"] = "DIGEST"
-                if BlockCount > 2:
+                ## Check block
+                if not Block_EndOfs is None:
+                    ## Check start and end offset if are both either relative or absolute
+                    if ((Block_StartOfs < 0 and Block_EndOfs <= 0) \
+                          or (Block_StartOfs >= 0 and Block_EndOfs > 0)):
+                        if Block_EndOfs <= Block_StartOfs:
+                            eprint("Option {} #{}: end offset value {} invalid (<= start offset value {})".format(Option, Block_Number, Block_EndOfs, Block_StartOfs))
+                            Exit_Code = 2
+                            continue
+                        #
+                        Block_Size = Block_EndOfs - Block_StartOfs
+                elif not Block_Size is None:
+                    if Block_StartOfs >= 0:
+                        Block_EndOfs = Block_StartOfs + Block_Size
+                    else:
+                        if abs(Block_StartOfs) < Block_Size:
+                            eprint("Option {} #{}: size value +{} invalid (> start offset value {})".format(Option, Block_Number, Block_Size, Block_StartOfs))
+                            Exit_Code = 2
+                            continue
+
+                New_Block = collections.OrderedDict()
+                New_Block["NUMBER"] = Block_Number
+                New_Block["STARTOFS"] = Block_StartOfs
+                New_Block["SIZE"] = Block_Size
+                New_Block["ENDOFS"] = Block_EndOfs
+                New_Block["VERIFY"] = "DIGEST"
+                if Block_Count > 2:
                     if Block[2].lower() == 'sha' \
                     or Block[2].lower() == 'sha1' \
                     or Block[2].lower() == 'sha-1':
-                        Blocks[Index]["VERIFY"] = "SHA-1"
+                        New_Block["VERIFY"] = "SHA-1"
                     elif Block[2].lower() == 'no' \
                     or Block[2].lower() == 'none':
-                        Blocks[Index]["VERIFY"] = None
+                        New_Block["VERIFY"] = None
+                Blocks.append(New_Block)
+                del New_Block
             elif Option in ("-d", "--debug"):
                 try:
-                    DebugLevel = int(OptionValue)
-                    if DebugLevel < 0:
-                        eprint("Option {}: value {} is not valid".format(Option, OptionValue))
-                        ExitCode = 2
+                    Debug_Level = int(Option_Value)
+                    if Debug_Level < 0:
+                        eprint("Option {}: value {} is not valid".format(Option, Option_Value))
+                        Exit_Code = 2
                 except:
-                    eprint("Option {}: value {} is not a number".format(Option, OptionValue))
-                    ExitCode = 2
+                    eprint("Option {}: value {} is not a number".format(Option, Option_Value))
+                    Exit_Code = 2
             elif Option in ("--values"):
-                Values = True
+                Do_Values = True
             elif Option in ("--extra"):
-                ExtraHashes = True
+                Extra_Hashes = True
             else:
-                eprint("Option {} is unhandled in program".format(Option, OptionValue))
-                ExitCode = 2
+                eprint("Option {} is unhandled in program".format(Option, Option_Value))
+                Exit_Code = 2
         #
-        try:
-            del Block
-        except:
-            pass
+        del Block_EndOfs
+        del Block_Size
+        del Block_StartOfs
+        del Skip
+        del Block_Count
+        del Block
+        del Block_Number
+        del Option_Value
+        del Option
 
-        if not ShowUsage \
+        if not Show_Usage \
         and not Arguments:
-            eprint("No", "values" if Values else "paths", "stated")
-            ExitCode = 2
+            eprint("No", "values" if Do_Values else "paths", "stated")
+            Exit_Code = 2
         #
-        if not ShowUsage \
-        and ExitCode == 0 \
-        and not Values \
-        and len(Blocks) == 0:
+        if not Show_Usage \
+        and Exit_Code == 0 \
+        and not Do_Values \
+        and not Blocks:
             eprint("No blocks stated")
-            ExitCode = 2
+            Exit_Code = 2
         #
-        if ShowUsage \
-        or ExitCode:
+        if Show_Usage \
+        or Exit_Code:
             showUsage()
-            sys.exit(ExitCode)
+            sys.exit(Exit_Code)
 
-        BlocksByOffset = sorted(Blocks, key=lambda x: (x["OFFSET"], x["SIZE"]))
-
-        if DebugLevel >= 3:
-            dprint("BlocksByOffset:")
-            for _i in range(len(BlocksByOffset)):
-                dprint("{}:".format(_i), BlocksByOffset[_i])
+        if Debug_Level >= 3:
+            dprint("Blocks:")
+            Index = None
+            for Index in range(len(Blocks)):
+                dprint("{}:".format(Index), Blocks[Index])
+            del Index
 
         ## Process paths
         for Source in Arguments:
-            if Values:
+            if Do_Values:
                 ## Process value
                 print(">>>>>>>>>> Value:", Source)
-                DataBytes = Source.encode("UTF-8")
-                if DebugLevel >= 2:
-                    dprint("Data bytes:", convertBytesToHexString(DataBytes, sep=""))
+                Data_Bytes = Source.encode("UTF-8")
+                if Debug_Level >= 2:
+                    dprint("Data bytes:", convertBytesToHexString(Data_Bytes, sep=""))
 
                 ## Create hash digests
                 Hashes = {}
                 ## SHA-1
-                Hashes["SHA-1"] = Cryptodome.Hash.SHA1.new(DataBytes).digest()
+                Hashes["SHA-1"] = Cryptodome.Hash.SHA1.new(Data_Bytes).digest()
                 ## SHA-256
-                Hashes["SHA-256"] = Cryptodome.Hash.SHA256.new(DataBytes).digest()
+                Hashes["SHA-256"] = Cryptodome.Hash.SHA256.new(Data_Bytes).digest()
                 ## MD5
-                Hashes["MD5"] = Cryptodome.Hash.MD5.new(DataBytes).digest()
+                Hashes["MD5"] = Cryptodome.Hash.MD5.new(Data_Bytes).digest()
                 ## CMACs with content keys
                 print("  Digest CMAC with Content Keys")
                 Hashes["CMAC_CONT"] = collections.OrderedDict()
                 for key in CONST_PKG3_CONTENT_KEYS:
-                    if ExtraHashes \
+                    if Extra_Hashes \
                     or key == 0:  ## Hash for PKG3 Digest CMAC 0x040
                         Hashes["CMAC_CONT"][key] = newCMAC(CONST_PKG3_CONTENT_KEYS[key]["KEY"])
-                        Hashes["CMAC_CONT"][key].update(DataBytes)
+                        Hashes["CMAC_CONT"][key].update(Data_Bytes)
                         Hashes["CMAC_CONT"][key] = Hashes["CMAC_CONT"][key].digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["CMAC_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                 ## HMACs SHA-1 with content keys
-                if ExtraHashes:
+                if Extra_Hashes:
                     print("  Digest HMAC SHA-1 with Content Keys")
                     Hashes["HMAC_SHA1_CONT"] = collections.OrderedDict()
                     for key in CONST_PKG3_CONTENT_KEYS:
-                        Hashes["HMAC_SHA1_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1, msg=DataBytes).digest()
+                        Hashes["HMAC_SHA1_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1, msg=Data_Bytes).digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_SHA1_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                 ## HMACs SHA-256 with content keys
-                if ExtraHashes:
+                if Extra_Hashes:
                     print("  Digest HMAC SHA-256 with Content Keys")
                     Hashes["HMAC_SHA256_CONT"] = collections.OrderedDict()
                     for key in CONST_PKG3_CONTENT_KEYS:
-                        Hashes["HMAC_SHA256_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256, msg=DataBytes).digest()
+                        Hashes["HMAC_SHA256_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256, msg=Data_Bytes).digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_SHA256_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                 ## HMACs MD5 with content keys
-                if ExtraHashes:
+                if Extra_Hashes:
                     print("  Digest HMAC MD5 with Content Keys")
                     Hashes["HMAC_MD5_CONT"] = collections.OrderedDict()
                     for key in CONST_PKG3_CONTENT_KEYS:
-                        Hashes["HMAC_MD5_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5, msg=DataBytes).digest()
+                        Hashes["HMAC_MD5_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5, msg=Data_Bytes).digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_MD5_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                 ## CMACs with update keys
-                if ExtraHashes:
+                if Extra_Hashes:
                     print("  Digest CMAC with Update Keys")
                     Hashes["CMAC_UPD"] = collections.OrderedDict()
                     for key in CONST_PKG3_UPDATE_KEYS:
                         Hashes["CMAC_UPD"][key] = newCMAC(CONST_PKG3_UPDATE_KEYS[key]["KEY"])
-                        Hashes["CMAC_UPD"][key].update(DataBytes)
+                        Hashes["CMAC_UPD"][key].update(Data_Bytes)
                         Hashes["CMAC_UPD"][key] = Hashes["CMAC_UPD"][key].digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["CMAC_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                 ## HMACs SHA-1 with update keys
-                if ExtraHashes:
+                if Extra_Hashes:
                     print("  Digest HMAC SHA-1 with Update Keys")
                     Hashes["HMAC_SHA1_UPD"] = collections.OrderedDict()
                     for key in CONST_PKG3_UPDATE_KEYS:
-                        Hashes["HMAC_SHA1_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1, msg=DataBytes).digest()
+                        Hashes["HMAC_SHA1_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1, msg=Data_Bytes).digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_SHA1_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                 ## HMACs SHA-256 with update keys
                 print("  Digest HMAC SHA-256 with Update Keys")
                 Hashes["HMAC_SHA256_UPD"] = collections.OrderedDict()
                 for key in CONST_PKG3_UPDATE_KEYS:
-                    if ExtraHashes \
+                    if Extra_Hashes \
                     or key == 2:  ## Hash for PSV Update URL
-                        Hashes["HMAC_SHA256_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256, msg=DataBytes).digest()
+                        Hashes["HMAC_SHA256_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256, msg=Data_Bytes).digest()
                         print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_SHA256_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                 ## HMACs MD5 with update keys
-                if ExtraHashes:
+                if Extra_Hashes:
                      print("  Digest HMAC MD5 with Update Keys")
                      Hashes["HMAC_MD5_UPD"] = collections.OrderedDict()
                      for key in CONST_PKG3_UPDATE_KEYS:
-                         Hashes["HMAC_MD5_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5, msg=DataBytes).digest()
+                         Hashes["HMAC_MD5_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5, msg=Data_Bytes).digest()
                          print("    Key #{}:".format(key), convertBytesToHexString(Hashes["HMAC_MD5_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                 ## Standard Hashes
                 print("  SHA-1:", convertBytesToHexString(Hashes["SHA-1"], sep=""))
                 print("  SHA-256:", convertBytesToHexString(Hashes["SHA-256"], sep=""))
                 print("  MD5:", convertBytesToHexString(Hashes["MD5"], sep=""))
 
-                del DataBytes
+                del Data_Bytes
             else:
-                ## Initialize per-file variables
-                Headers = {"User-Agent": "Mozilla/5.0 (PLAYSTATION 3; 4.83)"}  ## Default to PS3 headers (fits PS3/PSX/PSP/PSV packages, but not PSM packages for PSV)
-
                 ## Open PKG source
                 print(">>>>>>>>>> PKG Source:", Source)
-                DataStream = PkgReader(Source, Headers, DebugLevel)
-                FileSize = DataStream.getSize(DebugLevel)
-                print("File Size:", FileSize)
+                Input_Stream = PkgInputReader(Source, func_debug_level=max(0, Debug_Level))
+                File_Size = Input_Stream.getSize(func_debug_level=max(0, Debug_Level))
+                print("File Size:", File_Size)
 
-                ## Calculate necessary file blocks by combining data blocks that share file data
-                FileBlocks = []
-                FileParts = []
-                FilePartIndex = -1
-                for _i in range(len(BlocksByOffset)):
-                    BlockOffset = BlocksByOffset[_i]["OFFSET"]
-                    BlockSize = BlocksByOffset[_i]["SIZE"]
+                ## Convert blocks to file blocks
+                File_Blocks = []
+                Block = None
+                New_Block = None
+                Relative_Offset = None
+                Block_Offset = None
+                for Block in Blocks:
+                    ## Create new file block
+                    New_Block = collections.OrderedDict()
+                    New_Block["NUMBER"] = Block["NUMBER"]
+                    New_Block["STARTOFS"] = Block["STARTOFS"]
+                    New_Block["SIZE"] = Block["SIZE"]
+                    New_Block["ENDOFS"] = Block["ENDOFS"]
+                    New_Block["VERIFY"] = Block["VERIFY"]
 
-                    ## Add block as file block
-                    Index = len(FileBlocks)
-                    FileBlocks.append({})
-                    FileBlocks[Index]["NUMBER"] = BlocksByOffset[_i]["NUMBER"]
-                    FileBlocks[Index]["OFFSET"] = BlockOffset
-                    FileBlocks[Index]["SIZE"] = BlockSize
-                    FileBlocks[Index]["VERIFY"] = BlocksByOffset[_i]["VERIFY"]
+                    ## Handle start offset
+                    if New_Block["STARTOFS"] < 0:
+                        if not File_Size:
+                            eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its start offset could not be calculated without a file size", prefix="[WARNING] ")
+                            displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
+                            continue
+                        #
+                        Relative_Offset = New_Block["STARTOFS"]
+                        Block_Offset = File_Size + Relative_Offset
+                        #
+                        if Block_Offset < 0:  ## still negative
+                            eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its start offset", New_Block["STARTOFS"], "does not fit file size", File_Size, prefix="[WARNING] ")
+                            displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
+                            continue
+                        #
+                        New_Block["STARTOFS"] = Block_Offset
+                        New_Block["ORGSTARTOFS"] = Relative_Offset
+                    #
+                    if File_Size \
+                    and New_Block["STARTOFS"] >= File_Size:
+                        eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its start offset", New_Block["STARTOFS"], "does not fit file size", File_Size, prefix="[WARNING] ")
+                        displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
+                        continue
 
-                    ## Check block offset
-                    if FileSize \
-                    and BlockOffset >= FileSize:
-                        FileBlocks[Index]["SKIP"] = True
+                    ## Handle end offset
+                    if New_Block["ENDOFS"] is None:
+                        New_Block["ENDOFS"] = New_Block["STARTOFS"] + New_Block["SIZE"]
+                    elif New_Block["ENDOFS"] <= 0:
+                        if not File_Size:
+                            eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its end offset could not be calculated without a file size", prefix="[WARNING] ")
+                            displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
+                            continue
+                        #
+                        Relative_Offset = New_Block["ENDOFS"]
+                        Block_Offset = File_Size + Relative_Offset
+                        #
+                        if Block_Offset < 0:  ## still negative
+                            eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its end offset", New_Block["ENDOFS"], "does not fit file size", File_Size, prefix="[WARNING] ")
+                            displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
+                            continue
+                        #
+                        New_Block["ENDOFS"] = Block_Offset
+                        New_Block["ORGENDOFS"] = Relative_Offset
+                    #
+                    if File_Size \
+                    and New_Block["ENDOFS"] > File_Size:
+                        eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its end offset", New_Block["ENDOFS"], "does not fit file size", File_Size, prefix="[WARNING] ")
+                        displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
                         continue
 
                     ## Handle size
-                    if not FileSize \
-                    and BlockSize <= 0:
-                        FileBlocks[Index]["SKIP"] = True
-                        continue
+                    if New_Block["SIZE"] is None:
+                        New_Block["SIZE"] = New_Block["ENDOFS"] - New_Block["STARTOFS"]
                     #
-                    RelativeSize = 0
-                    if BlockSize <= 0:
-                        FileBlocks[Index]["ORGSIZE"] = BlockSize
-                        RelativeSize = BlockSize
-                        BlockSize = FileSize + RelativeSize - BlockOffset
-                    if BlockSize < 1:
-                        FileBlocks[Index]["SKIP"] = True
-                        if "ORGSIZE" in FileBlocks[Index]:
-                            del FileBlocks[Index]["ORGSIZE"]
-                        continue
-                    FileBlocks[Index]["SIZE"] = BlockSize
-
-                    ## Check next offset
-                    NextOffset = BlockOffset + BlockSize
-                    if FileSize \
-                    and NextOffset > FileSize:
-                        FileBlocks[Index]["SKIP"] = True
+                    if New_Block["SIZE"] <= 0:
+                        eprint("Block #{}:".format(New_Block["NUMBER"]), "Skipped as its size", New_Block["SIZE"], "is invalid (<=0)", prefix="[WARNING] ")
+                        displayBlock(New_Block, print_func=eprint, prefix="[WARNING]  ")
                         continue
 
-                    ## Extend file block data
-                    FileBlocks[Index]["NEXTOFFSET"] = NextOffset
+                    ## Add file block to process list
+                    File_Blocks.append(New_Block)
+                #
+                del Block_Offset
+                del Relative_Offset
+                del New_Block
+                del Block
 
-                    ## Block starts a new file part
-                    if FilePartIndex < 0 \
-                    or BlockOffset >= FileParts[FilePartIndex]["NEXTOFFSET"]:
-                        FilePartIndex = len(FileParts)
-                        FileParts.append({})
-                        FileParts[FilePartIndex]["OFFSET"] = BlockOffset
-                        FileParts[FilePartIndex]["NEXTOFFSET"] = NextOffset
-                        FileParts[FilePartIndex]["OFFSETS"] = []
+                ## Sort file blocks by calculated offsets and sizes
+                File_Blocks = sorted(File_Blocks, key=lambda x: (x["STARTOFS"], x["ENDOFS"]))
+                #
+                if Debug_Level >= 1:
+                    dprint("File Blocks (by offsets):")
+                    Index = None
+                    for Index in range(len(File_Blocks)):
+                        dprint("{}:".format(Index), File_Blocks[Index])
+                    del Index
+
+                ## Calculate file parts out of file blocks
+                File_Parts = []
+                File_Part_Index = -1
+                Block = None
+                for Block in File_Blocks:
+                    ## File block starts a new file part
+                    if File_Part_Index < 0 \
+                    or Block["STARTOFS"] >= File_Parts[File_Part_Index]["ENDOFS"]:
+                        File_Part_Index = len(File_Parts)
+                        #
+                        New_Part = collections.OrderedDict()
+                        New_Part["STARTOFS"] = Block["STARTOFS"]
+                        New_Part["ENDOFS"] = Block["ENDOFS"]
+                        New_Part["OFFSETS"] = []
+                        File_Parts.append(New_Part)
+                        del New_Part
                     ## Block extends current file part
-                    elif NextOffset > FileParts[FilePartIndex]["NEXTOFFSET"]:
-                        FileParts[FilePartIndex]["NEXTOFFSET"] = NextOffset
+                    elif Block["ENDOFS"] > File_Parts[File_Part_Index]["ENDOFS"]:
+                        File_Parts[File_Part_Index]["ENDOFS"] = Block["ENDOFS"]
 
-                    FileParts[FilePartIndex]["OFFSETS"].extend((BlockOffset, NextOffset))
-
-                if DebugLevel >= 1:
-                    dprint("FileBlocks:")
-                    for _i in range(len(FileBlocks)):
-                        dprint("{}:".format(_i), FileBlocks[_i])
+                    ## Collect offsets
+                    File_Parts[File_Part_Index]["OFFSETS"].extend((Block["STARTOFS"], Block["ENDOFS"]))
+                del Block
+                del File_Part_Index
 
                 ## For each file part do a unique sort of its offsets
-                for _i in range(len(FileParts)):
-                    FileParts[_i]["OFFSETS"] = sorted(set(FileParts[_i]["OFFSETS"]))
-
-                if DebugLevel >= 1:
-                    dprint("FileParts:")
-                    for _i in range(len(FileParts)):
-                        dprint("{}:".format(_i), FileParts[_i])
+                File_Part = None
+                for File_Part in File_Parts:
+                    File_Part["OFFSETS"] = sorted(set(File_Part["OFFSETS"]))
+                del File_Part
+                #
+                if Debug_Level >= 1:
+                    dprint("File Parts:")
+                    Index = None
+                    for Index in range(len(File_Parts)):
+                        dprint("{}:".format(Index), File_Parts[Index])
+                    del Index
 
                 ## Read each file part in chunks derived from the offsets
                 ## and calculate the CMAC and SHA hashes for each file block
                 ## For definition see http://www.psdevwiki.com/ps3/PKG_files#0x40_digest
-                BlockCount = len(FileBlocks)
-                for _i in range(len(FileParts)):
+                Block_Count = len(File_Blocks)
+                for _i in range(len(File_Parts)):
                     Hashes = {}
-                    for _j in range(len(FileParts[_i]["OFFSETS"])-1):
+                    for _j in range(len(File_Parts[_i]["OFFSETS"])-1):
                         ## Determine offset values
-                        BlockOffset = FileParts[_i]["OFFSETS"][_j]
-                        NextOffset = FileParts[_i]["OFFSETS"][_j+1]
-                        BlockSize = NextOffset - BlockOffset
+                        Block_Offset = File_Parts[_i]["OFFSETS"][_j]
+                        Next_Offset = File_Parts[_i]["OFFSETS"][_j+1]
+                        Block_Size = Next_Offset - Block_Offset
 
                         ## Add hashes entry for new offset
-                        Hashes[BlockOffset] = {}
+                        Hashes[Block_Offset] = {}
                         ## SHA-1
-                        Hashes[BlockOffset]["SHA-1"] = Cryptodome.Hash.SHA1.new()
+                        Hashes[Block_Offset]["SHA-1"] = Cryptodome.Hash.SHA1.new()
                         ## SHA-256
-                        Hashes[BlockOffset]["SHA-256"] = Cryptodome.Hash.SHA256.new()
+                        Hashes[Block_Offset]["SHA-256"] = Cryptodome.Hash.SHA256.new()
                         ## MD5
-                        Hashes[BlockOffset]["MD5"] = Cryptodome.Hash.MD5.new()
+                        Hashes[Block_Offset]["MD5"] = Cryptodome.Hash.MD5.new()
                         ## CMACs with content keys
-                        Hashes[BlockOffset]["CMAC_CONT"] = collections.OrderedDict()
+                        Hashes[Block_Offset]["CMAC_CONT"] = collections.OrderedDict()
                         for key in CONST_PKG3_CONTENT_KEYS:
-                            if ExtraHashes \
+                            if Extra_Hashes \
                             or key == 0:  ## Hash for PKG3 Digest CMAC 0x040
-                                Hashes[BlockOffset]["CMAC_CONT"][key] = newCMAC(CONST_PKG3_CONTENT_KEYS[key]["KEY"])
+                                Hashes[Block_Offset]["CMAC_CONT"][key] = newCMAC(CONST_PKG3_CONTENT_KEYS[key]["KEY"])
                         ## HMACs SHA-1 with content keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_SHA1_CONT"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_SHA1_CONT"] = collections.OrderedDict()
                             for key in CONST_PKG3_CONTENT_KEYS:
-                                Hashes[BlockOffset]["HMAC_SHA1_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1)
+                                Hashes[Block_Offset]["HMAC_SHA1_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1)
                         ## HMACs SHA-256 with content keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_SHA256_CONT"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_SHA256_CONT"] = collections.OrderedDict()
                             for key in CONST_PKG3_CONTENT_KEYS:
-                                Hashes[BlockOffset]["HMAC_SHA256_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256)
+                                Hashes[Block_Offset]["HMAC_SHA256_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256)
                         ## HMACs MD5 with content keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_MD5_CONT"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_MD5_CONT"] = collections.OrderedDict()
                             for key in CONST_PKG3_CONTENT_KEYS:
-                                Hashes[BlockOffset]["HMAC_MD5_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5)
+                                Hashes[Block_Offset]["HMAC_MD5_CONT"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_CONTENT_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5)
                         ## CMACs with update keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["CMAC_UPD"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["CMAC_UPD"] = collections.OrderedDict()
                             for key in CONST_PKG3_UPDATE_KEYS:
-                                Hashes[BlockOffset]["CMAC_UPD"][key] = newCMAC(CONST_PKG3_UPDATE_KEYS[key]["KEY"])
+                                Hashes[Block_Offset]["CMAC_UPD"][key] = newCMAC(CONST_PKG3_UPDATE_KEYS[key]["KEY"])
                         ## HMACs SHA-1 with update keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_SHA1_UPD"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_SHA1_UPD"] = collections.OrderedDict()
                             for key in CONST_PKG3_UPDATE_KEYS:
-                                Hashes[BlockOffset]["HMAC_SHA1_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1)
+                                Hashes[Block_Offset]["HMAC_SHA1_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA1)
                         ## HMACs SHA-256 with update keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_SHA256_UPD"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_SHA256_UPD"] = collections.OrderedDict()
                             for key in CONST_PKG3_UPDATE_KEYS:
-                                Hashes[BlockOffset]["HMAC_SHA256_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256)
+                                Hashes[Block_Offset]["HMAC_SHA256_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.SHA256)
                         ## HMACs MD5 with update keys
-                        if ExtraHashes:
-                            Hashes[BlockOffset]["HMAC_MD5_UPD"] = collections.OrderedDict()
+                        if Extra_Hashes:
+                            Hashes[Block_Offset]["HMAC_MD5_UPD"] = collections.OrderedDict()
                             for key in CONST_PKG3_UPDATE_KEYS:
-                                Hashes[BlockOffset]["HMAC_MD5_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5)
+                                Hashes[Block_Offset]["HMAC_MD5_UPD"][key] = Cryptodome.Hash.HMAC.new(CONST_PKG3_UPDATE_KEYS[key]["KEY"], digestmod=Cryptodome.Hash.MD5)
 
                         ## Get data from file
-                        if DebugLevel >= 2:
-                            dprint("Retrieve offset {:#010x} size {}".format(BlockOffset, BlockSize))
-                        DataBytes = None
-                        while BlockSize > 0:
-                            if BlockSize > CONST_READ_SIZE:
+                        if Debug_Level >= 2:
+                            dprint("Retrieve offset {:#010x} size {}".format(Block_Offset, Block_Size))
+                        Data_Bytes = None
+                        while Block_Size > 0:
+                            if Block_Size > CONST_READ_SIZE:
                                 Size = CONST_READ_SIZE
                             else:
-                                Size = BlockSize
-                            if DebugLevel >= 3:
-                                dprint("...offset {:#010x} size {}".format(BlockOffset, Size))
-                            DataBytes = DataStream.read(BlockOffset, Size, DebugLevel)
-                            BlockSize -= Size
-                            BlockOffset += Size
+                                Size = Block_Size
+                            if Debug_Level >= 3:
+                                dprint("...offset {:#010x} size {}".format(Block_Offset, Size))
+                            Data_Bytes = Input_Stream.read(Block_Offset, Size, func_debug_level=max(0, Debug_Level))
+                            Block_Size -= Size
+                            Block_Offset += Size
 
                             ## Update hashes with data
                             for _k in Hashes:
                                 ## SHA-1
-                                Hashes[_k]["SHA-1"].update(DataBytes)
+                                Hashes[_k]["SHA-1"].update(Data_Bytes)
                                 ## SHA-256
-                                Hashes[_k]["SHA-256"].update(DataBytes)
+                                Hashes[_k]["SHA-256"].update(Data_Bytes)
                                 ## MD5
-                                Hashes[_k]["MD5"].update(DataBytes)
+                                Hashes[_k]["MD5"].update(Data_Bytes)
                                 ## CMACs with content keys
                                 if "CMAC_CONT" in Hashes[_k]:
                                     for key in Hashes[_k]["CMAC_CONT"]:
-                                        Hashes[_k]["CMAC_CONT"][key].update(DataBytes)
+                                        Hashes[_k]["CMAC_CONT"][key].update(Data_Bytes)
                                 ## HMACs SHA-1 with content keys
                                 if "HMAC_SHA1_CONT" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_SHA1_CONT"]:
-                                        Hashes[_k]["HMAC_SHA1_CONT"][key].update(DataBytes)
+                                        Hashes[_k]["HMAC_SHA1_CONT"][key].update(Data_Bytes)
                                 ## HMACs SHA-256 with content keys
                                 if "HMAC_SHA256_CONT" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_SHA256_CONT"]:
-                                        Hashes[_k]["HMAC_SHA256_CONT"][key].update(DataBytes)
+                                        Hashes[_k]["HMAC_SHA256_CONT"][key].update(Data_Bytes)
                                 ## HMACs MD5 with content keys
                                 if "HMAC_MD5_CONT" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_MD5_CONT"]:
-                                        Hashes[_k]["HMAC_MD5_CONT"][key].update(DataBytes)
+                                        Hashes[_k]["HMAC_MD5_CONT"][key].update(Data_Bytes)
                                 ## CMACs with update keys
                                 if "CMAC_UPD" in Hashes[_k]:
                                     for key in Hashes[_k]["CMAC_UPD"]:
-                                        Hashes[_k]["CMAC_UPD"][key].update(DataBytes)
+                                        Hashes[_k]["CMAC_UPD"][key].update(Data_Bytes)
                                 ## HMACs SHA-1 with update keys
                                 if "HMAC_SHA1_UPD" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_SHA1_UPD"]:
-                                        Hashes[_k]["HMAC_SHA1_UPD"][key].update(DataBytes)
+                                        Hashes[_k]["HMAC_SHA1_UPD"][key].update(Data_Bytes)
                                 ## HMACs SHA-256 with update keys
                                 if "HMAC_SHA256_UPD" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_SHA256_UPD"]:
-                                        Hashes[_k]["HMAC_SHA256_UPD"][key].update(DataBytes)
+                                        Hashes[_k]["HMAC_SHA256_UPD"][key].update(Data_Bytes)
                                 ## HMACs MD5 with update keys
                                 if "HMAC_MD5_UPD" in Hashes[_k]:
                                     for key in Hashes[_k]["HMAC_MD5_UPD"]:
-                                        Hashes[_k]["HMAC_MD5_UPD"][key].update(DataBytes)
-                        del DataBytes
+                                        Hashes[_k]["HMAC_MD5_UPD"][key].update(Data_Bytes)
+                        del Data_Bytes
 
                         ## Check if any file block got completed
-                        for _k in range(BlockCount):
-                            if "SKIP" in FileBlocks[_k] \
-                            and FileBlocks[_k]["SKIP"]:
-                                continue
-
-                            if FileBlocks[_k]["NEXTOFFSET"] == NextOffset:
-                                if DebugLevel >= 2:
-                                    dprint("Block #{} completed".format(FileBlocks[_k]["NUMBER"]))
-                                BlockOffset = FileBlocks[_k]["OFFSET"]
+                        for _k in range(Block_Count):
+                            if File_Blocks[_k]["ENDOFS"] == Next_Offset:
+                                if Debug_Level >= 2:
+                                    dprint("Block #{} completed".format(File_Blocks[_k]["NUMBER"]))
+                                Block_Offset = File_Blocks[_k]["STARTOFS"]
                                 ## SHA-1
-                                FileBlocks[_k]["SHA-1"] = Hashes[BlockOffset]["SHA-1"].copy().digest()
+                                File_Blocks[_k]["SHA-1"] = Hashes[Block_Offset]["SHA-1"].copy().digest()
                                 ## SHA-256
-                                FileBlocks[_k]["SHA-256"] = Hashes[BlockOffset]["SHA-256"].copy().digest()
+                                File_Blocks[_k]["SHA-256"] = Hashes[Block_Offset]["SHA-256"].copy().digest()
                                 ## MD5
-                                FileBlocks[_k]["MD5"] = Hashes[BlockOffset]["MD5"].copy().digest()
+                                File_Blocks[_k]["MD5"] = Hashes[Block_Offset]["MD5"].copy().digest()
                                 ## CMACs with content keys
-                                if "CMAC_CONT" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["CMAC_CONT"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["CMAC_CONT"]:
-                                        FileBlocks[_k]["CMAC_CONT"][key] = digestCMAC(Hashes[BlockOffset]["CMAC_CONT"][key])
+                                if "CMAC_CONT" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["CMAC_CONT"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["CMAC_CONT"]:
+                                        File_Blocks[_k]["CMAC_CONT"][key] = digestCMAC(Hashes[Block_Offset]["CMAC_CONT"][key])
                                 ## HMACs SHA-1 with content keys
-                                if "HMAC_SHA1_CONT" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_SHA1_CONT"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_SHA1_CONT"]:
-                                        FileBlocks[_k]["HMAC_SHA1_CONT"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_SHA1_CONT"][key])
+                                if "HMAC_SHA1_CONT" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_SHA1_CONT"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_SHA1_CONT"]:
+                                        File_Blocks[_k]["HMAC_SHA1_CONT"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_SHA1_CONT"][key])
                                 ## HMACs SHA-256 with content keys
-                                if "HMAC_SHA256_CONT" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_SHA256_CONT"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_SHA256_CONT"]:
-                                        FileBlocks[_k]["HMAC_SHA256_CONT"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_SHA256_CONT"][key])
+                                if "HMAC_SHA256_CONT" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_SHA256_CONT"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_SHA256_CONT"]:
+                                        File_Blocks[_k]["HMAC_SHA256_CONT"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_SHA256_CONT"][key])
                                 ## HMACs MD5 with content keys
-                                if "HMAC_MD5_CONT" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_MD5_CONT"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_MD5_CONT"]:
-                                        FileBlocks[_k]["HMAC_MD5_CONT"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_MD5_CONT"][key])
+                                if "HMAC_MD5_CONT" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_MD5_CONT"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_MD5_CONT"]:
+                                        File_Blocks[_k]["HMAC_MD5_CONT"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_MD5_CONT"][key])
                                 ## CMACs with update keys
-                                if "CMAC_UPD" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["CMAC_UPD"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["CMAC_UPD"]:
-                                        FileBlocks[_k]["CMAC_UPD"][key] = digestCMAC(Hashes[BlockOffset]["CMAC_UPD"][key])
+                                if "CMAC_UPD" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["CMAC_UPD"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["CMAC_UPD"]:
+                                        File_Blocks[_k]["CMAC_UPD"][key] = digestCMAC(Hashes[Block_Offset]["CMAC_UPD"][key])
                                 ## HMACs SHA-1 with update keys
-                                if "HMAC_SHA1_UPD" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_SHA1_UPD"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_SHA1_UPD"]:
-                                        FileBlocks[_k]["HMAC_SHA1_UPD"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_SHA1_UPD"][key])
+                                if "HMAC_SHA1_UPD" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_SHA1_UPD"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_SHA1_UPD"]:
+                                        File_Blocks[_k]["HMAC_SHA1_UPD"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_SHA1_UPD"][key])
                                 ## HMACs SHA-256 with update keys
-                                if "HMAC_SHA256_UPD" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_SHA256_UPD"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_SHA256_UPD"]:
-                                        FileBlocks[_k]["HMAC_SHA256_UPD"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_SHA256_UPD"][key])
+                                if "HMAC_SHA256_UPD" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_SHA256_UPD"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_SHA256_UPD"]:
+                                        File_Blocks[_k]["HMAC_SHA256_UPD"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_SHA256_UPD"][key])
                                 ## HMACs MD5 with update keys
-                                if "HMAC_MD5_UPD" in Hashes[BlockOffset]:
-                                    FileBlocks[_k]["HMAC_MD5_UPD"] = collections.OrderedDict()
-                                    for key in Hashes[BlockOffset]["HMAC_MD5_UPD"]:
-                                        FileBlocks[_k]["HMAC_MD5_UPD"][key] = digestCMAC(Hashes[BlockOffset]["HMAC_MD5_UPD"][key])
+                                if "HMAC_MD5_UPD" in Hashes[Block_Offset]:
+                                    File_Blocks[_k]["HMAC_MD5_UPD"] = collections.OrderedDict()
+                                    for key in Hashes[Block_Offset]["HMAC_MD5_UPD"]:
+                                        File_Blocks[_k]["HMAC_MD5_UPD"][key] = digestCMAC(Hashes[Block_Offset]["HMAC_MD5_UPD"][key])
 
-                FileBlocks = sorted(FileBlocks, key=lambda x: (x["NUMBER"]))
+                File_Blocks = sorted(File_Blocks, key=lambda x: (x["NUMBER"]))
 
-                for _i in range(BlockCount):
-                    print("Block #{} offset {:#010x} size {}{}{}".format(_i+1, FileBlocks[_i]["OFFSET"], FileBlocks[_i]["SIZE"], " ({})".format(FileBlocks[_i]["ORGSIZE"]) if "ORGSIZE" in FileBlocks[_i] else "", " (verify {})".format(FileBlocks[_i]["VERIFY"]) if FileBlocks[_i]["VERIFY"] != "DIGEST" else ""))
+                for _i in range(Block_Count):
+                    print("Block #{} offset {:#010x} size {}{}{}".format(File_Blocks[_i]["NUMBER"], File_Blocks[_i]["STARTOFS"], File_Blocks[_i]["SIZE"], " ({})".format(File_Blocks[_i]["ORGSIZE"]) if "ORGSIZE" in File_Blocks[_i] else "", " (verify {})".format(File_Blocks[_i]["VERIFY"]) if File_Blocks[_i]["VERIFY"] != "DIGEST" else ""))
 
-                    if "SKIP" in FileBlocks[_i] \
-                    and FileBlocks[_i]["SKIP"]:
-                        if FileSize:
-                            print("  WARNING: Skipped as it does not fit file size")
-                        else:
-                            print("  WARNING: Skipped as its size could not be calculated")
-                        continue
-
-                    print("  Digest CMAC:", convertBytesToHexString(FileBlocks[_i]["CMAC_CONT"][0], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[0]["DESC"]))
-                    print("  Digest SHA-1 (last 8 bytes):", convertBytesToHexString(FileBlocks[_i]["SHA-1"][-8:], sep=""))
-                    print("  SHA-1:", convertBytesToHexString(FileBlocks[_i]["SHA-1"], sep=""))
-                    print("  SHA-256:", convertBytesToHexString(FileBlocks[_i]["SHA-256"], sep=""))
-                    print("  MD5:", convertBytesToHexString(FileBlocks[_i]["MD5"], sep=""))
+                    print("  Digest CMAC:", convertBytesToHexString(File_Blocks[_i]["CMAC_CONT"][0], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[0]["DESC"]))
+                    print("  Digest SHA-1 (last 8 bytes):", convertBytesToHexString(File_Blocks[_i]["SHA-1"][-8:], sep=""))
+                    print("  SHA-1:", convertBytesToHexString(File_Blocks[_i]["SHA-1"], sep=""))
+                    print("  SHA-256:", convertBytesToHexString(File_Blocks[_i]["SHA-256"], sep=""))
+                    print("  MD5:", convertBytesToHexString(File_Blocks[_i]["MD5"], sep=""))
 
                     ## Display extra hashes
                     ## CMACs with content keys
-                    if "CMAC_CONT" in FileBlocks[_i] \
-                    and ExtraHashes:
+                    if "CMAC_CONT" in File_Blocks[_i] \
+                    and Extra_Hashes:
                         print("  Digest CMAC with Content Keys")
-                        for key in FileBlocks[_i]["CMAC_CONT"]:
+                        for key in File_Blocks[_i]["CMAC_CONT"]:
                             if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["CMAC_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
+                                print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["CMAC_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                     ## HMACs SHA-1 with content keys
-                    if "HMAC_SHA1_CONT" in FileBlocks[_i]:
+                    if "HMAC_SHA1_CONT" in File_Blocks[_i]:
                         print("  Digest HMAC SHA-1 with Content Keys")
-                        for key in FileBlocks[_i]["HMAC_SHA1_CONT"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_SHA1_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_SHA1_CONT"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_SHA1_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                     ## HMACs SHA-256 with content keys
-                    if "HMAC_SHA256_CONT" in FileBlocks[_i]:
+                    if "HMAC_SHA256_CONT" in File_Blocks[_i]:
                         print("  Digest HMAC SHA-256 with Content Keys")
-                        for key in FileBlocks[_i]["HMAC_SHA256_CONT"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_SHA256_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_SHA256_CONT"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_SHA256_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                     ## HMACs MD5 with content keys
-                    if "HMAC_MD5_CONT" in FileBlocks[_i]:
+                    if "HMAC_MD5_CONT" in File_Blocks[_i]:
                         print("  Digest HMAC MD5 with Content Keys")
-                        for key in FileBlocks[_i]["HMAC_MD5_CONT"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_MD5_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_MD5_CONT"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_MD5_CONT"][key], sep=""), " ({})".format(CONST_PKG3_CONTENT_KEYS[key]["DESC"]))
                     ## CMACs with update keys
-                    if "CMAC_UPD" in FileBlocks[_i] \
-                    and ExtraHashes:
+                    if "CMAC_UPD" in File_Blocks[_i] \
+                    and Extra_Hashes:
                         print("  Digest CMAC with Update Keys")
-                        for key in FileBlocks[_i]["CMAC_UPD"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["CMAC_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["CMAC_UPD"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["CMAC_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                     ## HMACs SHA-1 with update keys
-                    if "HMAC_SHA1_UPD" in FileBlocks[_i]:
+                    if "HMAC_SHA1_UPD" in File_Blocks[_i]:
                         print("  Digest HMAC SHA-1 with Update Keys")
-                        for key in FileBlocks[_i]["HMAC_SHA1_UPD"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_SHA1_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_SHA1_UPD"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_SHA1_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                     ## HMACs SHA-256 with update keys
-                    if "HMAC_SHA256_UPD" in FileBlocks[_i]:
+                    if "HMAC_SHA256_UPD" in File_Blocks[_i]:
                         print("  Digest HMAC SHA-256 with Update Keys")
-                        for key in FileBlocks[_i]["HMAC_SHA256_UPD"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_SHA256_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_SHA256_UPD"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_SHA256_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
                     ## HMACs MD5 with update keys
-                    if "HMAC_MD5_UPD" in FileBlocks[_i]:
+                    if "HMAC_MD5_UPD" in File_Blocks[_i]:
                         print("  Digest HMAC MD5 with Update Keys")
-                        for key in FileBlocks[_i]["HMAC_MD5_UPD"]:
-                            if key != 0:
-                                print("    Key #{}:".format(key), convertBytesToHexString(FileBlocks[_i]["HMAC_MD5_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
+                        for key in File_Blocks[_i]["HMAC_MD5_UPD"]:
+                            print("    Key #{}:".format(key), convertBytesToHexString(File_Blocks[_i]["HMAC_MD5_UPD"][key], sep=""), " ({})".format(CONST_PKG3_UPDATE_KEYS[key]["DESC"]))
 
                 ## Close data stream
-                DataStream.close(DebugLevel)
-                del DataStream
+                Input_Stream.close(func_debug_level=max(0, Debug_Level))
+                del Input_Stream
+        sys.stdout.flush()
+        sys.stderr.flush()
     except SystemExit:
         raise  ## re-raise/throw up (let Python handle it)
     except:

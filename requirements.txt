@@ -1,0 +1,4 @@
+pycryptodomex
+cryptography
+requests
+aenum

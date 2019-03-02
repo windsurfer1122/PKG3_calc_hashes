@@ -1,13 +1,15 @@
 # PKG3_calc_hashes.py (c) 2018-2019 by "windsurfer1122"
-Calculate hashes for data blocks inside PS3/PSX/PSP/PSV/PSM packages.
+Calculate hashes and verify hashes plus RSA signatures for data blocks in PS3/PSX/PSP/PSV/PSM packages.
 
-<u>Goals:</u>
+## Goals:
 * Build CMAC hashes for data, just like it is in the 0x40 digest of PKG3 packages (PS3/PSX/PSP/PSV/PSM)<br>
   For definition see http://www.psdevwiki.com/ps3/PKG_files#0x40_digest
 * Additionally build other hashes used in package files, e.g. MD5, SHA-1 and SHA-256
 * Build hashes for multiple data offsets and sizes in a single run, even when interleaved
-* Allow to also hash values (strings) directly and not just data from a file (e.g. hash in PSV update URLs)
+* Allow to also hash values (strings) directly and not just data from a file (e.g. hash for PSV update URLs)
+* Verify RSA signatures
 * Support http download streaming to avoid harddisk usage
+* Support multi-part packages (PS3: XML, PS4: JSON)
 * Easy to maintain and no compiler necessary (=interpreter language)
 * Cross platform support
   * Decision: Python 3
@@ -27,16 +29,29 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 * Special case is zero for the end offset which is also relative to the file end.
 
 <u>Block Examples:</u>
-* To calculate the digest for the main header use: -b 0,128 (offsets) or -b 0,+128 (offset plus size)
-* To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use: -b 0,-32
-* To calculate the SHA-256 for the whole package use: -b 0,0
+* To calculate the digest values for the main header use: -b=0,+0x80 (offset plus size) or -b 0,128 (offsets)<br>
+  To add verification use: -b=0,+0x80,digest
+* To calculate the SHA-1 for all data, which is stored in the last 32 bytes of each package, use: -b=0,-32
+* To calculate the SHA-256 for the whole package use: -b=0,0
+* Real life definitions for [JP3608-PCSG01200_00-0000000000000001](http://zeus.dl.playstation.net/cdn/JP3608/PCSG01200_00/JP3608-PCSG01200_00-0000000000000001_bg_1_1f292cbeb41b685b395a8fe43a24c10338162fbc.pkg) (5 MiB):
+  * Main header digest: -b=0,0x80,digest
+  * Main+Ext header RSA: -b=0,0x0100,rsa-0
+  * Meta data digest+RSA: -b=0x280,+0x1d0,digest,rsa-0,0x490
+  * Unencrypted PARAM.SFO: -b=0xbf0,+0x530,sha256,0x330
+  * Head+Body digest+RSA: -b=0,0x4b0480,digest,rsa-0,0x4b04c0
+  * Tail SHA1: -b=0,-32,sha1
+  * Hashes for complete file: -b=0,0
 
+## Contributions welcome
+* Especially information about how to interpret data is needed, e.g. link between data and RSA signatures
+* See TODO.MD what is still left to do
 
 ## Requirements
 * Python Modules
-  * [pycryptodomex](https://www.pycryptodome.org/) (note the X at the end)
-  * [cryptography](https://cryptography.io/)
+  * [pycryptodomex](https://www.pycryptodome.org/) >= 3.7.2 (note the X at the end)
+  * [cryptography](https://cryptography.io/) (optional if pycryptodomex 3.7.2+ is not available)
   * [requests](http://python-requests.org/)
+  * [aenum](https://bitbucket.org/stoneleaf/aenum)
 
 ### Installing on Debian
 1. Python 3, which is the recommended version, and most modules can be installed via apt.<br>

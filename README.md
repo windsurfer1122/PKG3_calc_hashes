@@ -58,7 +58,6 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 Install Python 3 and some modules via the following apt packages: `python3 python3-pip python3-requests python3-cryptography`.<br>
 
 1. Python 2 is the default on Debian, but comes with an outdated pip version until Debian 8.<br>
-Note that with Python 2 ZRIF support is not possible at all.<br>
 __Starting with Debian 9 "Stretch"__ install Python 2 modules via the following apt packages: `python-pip python-future python-requests python-cryptography`.<br>
 For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](https://pypi.org/project/pip/) source:<br>
    ```
@@ -73,6 +72,9 @@ For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](htt
    * Install pycryptodomex module:
      * Python 3: `pip3 install --upgrade pycryptodomex`
      * Python 2: `pip2 install --upgrade pycryptodomex`
+   * Install aenum module:
+     * Python 3: `pip3 install --upgrade aenum`
+     * Python 2: `pip2 install --upgrade aenum`
 
 ### Installing on Windows
 1. Install Python<br>
@@ -91,6 +93,7 @@ For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](htt
    * Install requests module: `pip install --upgrade requests`
    * Install pycryptodomex module: `pip install --upgrade pycryptodomex`
    * Install cryptography module: `pip install --upgrade cryptography`
+   * Install aenum module: `pip install --upgrade aenum`
    * Exit Command Prompt: `exit`
 
 Executing python scripts can be done via Windows Explorer or a Command Prompt. Normally no elevation is necessary for script execution, except when the python script wants to change something in the system internals.
@@ -118,4 +121,4 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ## Additional Credits for Ideas and Several Details
 * https://playstationdev.wiki/ (previously https://vitadevwiki.com/ & https://www.pspdevwiki.com/)
 * http://www.psdevwiki.com/
-* CelesteBlue
+* [CelesteBlue](https://github.com/CelesteBlue-dev)

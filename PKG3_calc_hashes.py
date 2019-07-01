@@ -55,7 +55,8 @@ from builtins import bytes
 
 
 ## Version definition
-__version__ = "2019.03.02"
+## see https://www.python.org/dev/peps/pep-0440/
+__version__ = "2019.07.01"
 __author__ = "https://github.com/windsurfer1122/PKG3_calc_hashes"
 __license__ = "GPL"
 __copyright__ = "Copyright 2018-2019, windsurfer1122"
@@ -239,7 +240,7 @@ CONST_READ_AHEAD_SIZE = 128 * 0x400 ## Read first 128 KiB to reduce read request
 CONST_USER_AGENT_PS3 = "Mozilla/5.0 (PLAYSTATION 3; 4.84)"
 #CONST_USER_AGENT_PSP = ""
 CONST_USER_AGENT_PSV = " libhttp/3.70 (PS Vita)"
-CONST_USER_AGENT_PS4 = "Download/1.00 libhttp/6.20 (PlayStation 4)"
+CONST_USER_AGENT_PS4 = "Download/1.00 libhttp/6.71 (PlayStation 4)"
 #
 CONST_HASH_MD5 = "MD5"
 CONST_HASH_SHA1 = "SHA1"
@@ -283,6 +284,10 @@ CONST_PKG3_AES_KEYS = {
 for Key, Values in CONST_PKG3_AES_KEYS.items():
     if isinstance(Values["KEY"], unicode):
         Values["KEY"] = base64.standard_b64decode(Values["KEY"])
+    elif isinstance(Values["KEY"], bytes) \
+    or isinstance(Values["KEY"], bytearray):
+        if Key != -1:
+            eprint("PKG3 Content Key #{}:".format(Key), base64.standard_b64encode(Values["KEY"]), prefix="[CONVERT] ")
 del Values
 del Key
 ## --> PKG RSA Public Keys 2048 bit (=256/0x100 bytes)
@@ -298,6 +303,10 @@ for Key, Values in CONST_PKG3_RSA_PUB_KEYS.items():
         Values["KEY"] = base64.standard_b64decode(Values["KEY"])
         Values["SIZE"] = len(Values["KEY"])
         Values["RSA"] = Cryptodome.PublicKey.RSA.construct((int.from_bytes(Values["KEY"], byteorder="big"), CONST_PKG3_RSA_PUB_EXP))
+    elif isinstance(Values["KEY"], bytes) \
+    or isinstance(Values["KEY"], bytearray):
+        if Key >= 0:
+            eprint("PKG3 Content Key #{}:".format(Key), base64.standard_b64encode(Values["KEY"]), prefix="[CONVERT] ")
 del Values
 del Key
 
@@ -313,7 +322,7 @@ def convertBytesToHexString(data, format="", sep=" "):
 
 
 class PkgInputReader():
-    def __init__(self, source, func_debug_level=0):
+    def __init__(self, source, function_debug_level=0):
         self._source = source
         self._pkg_name = None
         self._size = None
@@ -334,28 +343,44 @@ class PkgInputReader():
             xml_element = None
             if self._source.startswith("http:") \
             or self._source.startswith("https:"):
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Opening source as URL XML data stream")
                 try:
                     input_stream = requests.get(self._source, headers=self._headers)
                 except:
                     eprint("[INPUT] Could not open URL", self._source)
+                    if input_stream:
+                        if input_stream.url != self._source:
+                            eprint("[INPUT] Redirected URL", input_stream.url)
+                        eprint("[INPUT]", input_stream.status_code, input_stream.reason)
                     eprint("", prefix=None)
-                    sys.exit(2)
+                    raise  ## re-raise
+                if input_stream.status_code != requests.codes.ok:
+                    eprint("[INPUT] Could not open URL", self._source)
+                    if input_stream.url != self._source:
+                        eprint("[INPUT] Redirected URL", input_stream.url)
+                    eprint("[INPUT]", input_stream.status_code, input_stream.reason)
+                    raise input_stream.raise_for_status()
+                if function_debug_level >= 3:
+                    if input_stream.url != self._source:
+                        dprint("[INPUT] Redirected URL", input_stream.url)
+                    dprint("[INPUT]", input_stream.status_code, input_stream.reason)
+                    dprint("[INPUT] Response headers:", input_stream.headers)
                 xml_root = xml.etree.ElementTree.fromstring(input_stream.text)
                 input_stream.close()
             else:
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Opening source as FILE XML data stream")
                 try:
-                    input_stream = io.open(self._source, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+                    input_stream = io.open(self._source, mode="rt", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
                 except:
                     eprint("[INPUT] Could not open FILE", self._source)
                     eprint("", prefix=None)
-                    sys.exit(2)
+                    raise  ## re-raise
                 xml_root = xml.etree.ElementTree.fromstring(input_stream.read())
                 input_stream.close()
             del input_stream
+            #
             ## Check for known XML
             if xml_root.tag != CONST_PKG3_XML_ROOT:
                 eprint("[INPUT] Not a known PKG XML file ({} <> {})".format(xml_root.tag, CONST_PKG3_XML_ROOT), self._source)
@@ -394,7 +419,7 @@ class PkgInputReader():
                 file_part["END_OFS"] = file_part["START_OFS"] + file_part["SIZE"]
                 offset += file_part["SIZE"]
                 #
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Pkg Part #{} Offset {:#012x} Size {} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["SIZE"], file_part["url"]))
             del file_part
             del offset
@@ -408,25 +433,40 @@ class PkgInputReader():
             json_data = None
             if self._source.startswith("http:") \
             or self._source.startswith("https:"):
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Opening source as URL JSON data stream")
                 try:
                     input_stream = requests.get(self._source, headers=self._headers)
                 except:
                     eprint("[INPUT] Could not open URL", self._source)
+                    if input_stream:
+                        if input_stream.url != self._source:
+                            eprint("[INPUT] Redirected URL", input_stream.url)
+                        eprint("[INPUT]", input_stream.status_code, input_stream.reason)
                     eprint("", prefix=None)
-                    sys.exit(2)
+                    raise  ## re-raise
+                if input_stream.status_code != requests.codes.ok:
+                    eprint("[INPUT] Could not open URL", self._source)
+                    if input_stream.url != self._source:
+                        eprint("[INPUT] Redirected URL", input_stream.url)
+                    eprint("[INPUT]", input_stream.status_code, input_stream.reason)
+                    raise input_stream.raise_for_status()
+                if function_debug_level >= 3:
+                    if input_stream.url != self._source:
+                        dprint("[INPUT] Redirected URL", input_stream.url)
+                    dprint("[INPUT]", input_stream.status_code, input_stream.reason)
+                    dprint("[INPUT] Response headers:", input_stream.headers)
                 json_data = input_stream.json()
                 input_stream.close()
             else:
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Opening source as FILE JSON data stream")
                 try:
-                    input_stream = io.open(self._source, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
+                    input_stream = io.open(self._source, mode="rt", buffering=-1, encoding=None, errors=None, newline=None, closefd=True)
                 except:
                     eprint("[INPUT] Could not open FILE", self._source)
                     eprint("", prefix=None)
-                    sys.exit(2)
+                    raise  ## re-raise
                 json_data = json.load(input_stream)
                 input_stream.close()
             del input_stream
@@ -475,7 +515,7 @@ class PkgInputReader():
                     #
                     self._parts.append(file_part)
                     #
-                    if func_debug_level >= 2:
+                    if function_debug_level >= 2:
                         dprint("[INPUT] Pkg Part #{} Offset {:#012x} Size {} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["SIZE"], file_part["url"]))
                 del file_part
                 del count
@@ -484,11 +524,11 @@ class PkgInputReader():
         else:
             if self._source.startswith("http:") \
             or self._source.startswith("https:"):
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Using source as URL PKG data stream")
                 self._pkg_name = os.path.basename(requests.utils.urlparse(self._source).path).strip()
             else:
-                if func_debug_level >= 2:
+                if function_debug_level >= 2:
                     dprint("[INPUT] Using source as FILE PKG data stream")
                 self._pkg_name = os.path.basename(self._source).strip()
             #
@@ -500,11 +540,11 @@ class PkgInputReader():
             file_part["START_OFS"] = 0
             file_part["url"] = self._source
             self._parts.append(file_part)
-            if func_debug_level >= 2:
+            if function_debug_level >= 2:
                 dprint("[INPUT] Pkg Part #{} Offset {:#012x} \"{}\"".format(file_part["INDEX"], file_part["START_OFS"], file_part["url"]))
             del file_part
             #
-            self.open(self._parts[0], func_debug_level=max(0,func_debug_level))
+            self.open(self._parts[0], function_debug_level=max(0,function_debug_level))
             if "SIZE" in self._parts[0]:
                 self._size = self._parts[0]["SIZE"]
 
@@ -512,29 +552,30 @@ class PkgInputReader():
         if read_size > self._size:
             read_size = self._size
         if read_size > 0:
-            self._buffer = self.read(0, read_size, func_debug_level=max(0,func_debug_level))
+            self._buffer = self.read(0, read_size, function_debug_level=max(0,function_debug_level))
             self._buffer_size = len(self._buffer)
-            if func_debug_level >= 2:
+            if function_debug_level >= 2:
                 dprint("[INPUT] Buffered first {} bytes of package".format(self._buffer_size), "(max {})".format(CONST_READ_AHEAD_SIZE) if self._buffer_size != CONST_READ_AHEAD_SIZE else "")
 
-    def getSize(self, func_debug_level=0):
+    def getSize(self, function_debug_level=0):
         return self._size
 
-    def getSource(self, func_debug_level=0):
+    def getSource(self, function_debug_level=0):
         return self._source
 
-    def getPkgName(self, func_debug_level=0):
+    def getPkgName(self, function_debug_level=0):
         return self._pkg_name
 
-    def open(self, file_part, func_debug_level=0):
+    def open(self, file_part, function_debug_level=0):
         ## Check if already opened
         if "STREAM" in file_part:
             return
 
         part_size = None
+        response = None
         if file_part["url"].startswith("http:") \
         or file_part["url"].startswith("https:"):
-            if func_debug_level >= 3:
+            if function_debug_level >= 2:
                 dprint("[INPUT] Opening Pkg Part #{} as URL PKG data stream".format(file_part["INDEX"]))
             ## Persistent session
             ## http://docs.python-requests.org/en/master/api/#request-sessions
@@ -544,17 +585,34 @@ class PkgInputReader():
             except:
                 eprint("[INPUT] Could not create HTTP/S session for PKG URL", file_part["url"])
                 eprint("", prefix=None)
-                sys.exit(2)
+                raise  ## re-raise
             #
             file_part["STREAM"].headers = self._headers
-            response = file_part["STREAM"].head(file_part["url"])
-            if func_debug_level >= 3:
-                dprint("[INPUT]", response)
+            try:
+                response = file_part["STREAM"].head(file_part["url"], allow_redirects=True, timeout=60)
+            except:
+                eprint("[INPUT] Could not open URL", file_part["url"])
+                if response:
+                    if response.url != file_part["url"]:
+                        eprint("[INPUT] Redirected URL", response.url)
+                    eprint("[INPUT]", response.status_code, response.reason)
+                eprint("", prefix=None)
+                raise  ## re-raise
+            if response.status_code != requests.codes.ok:
+                eprint("[INPUT] Could not open URL", file_part["url"])
+                if response.url != file_part["url"]:
+                    eprint("[INPUT] Redirected URL", response.url)
+                eprint("[INPUT]", response.status_code, response.reason)
+                raise response.raise_for_status()
+            if function_debug_level >= 3:
+                if response.url != file_part["url"]:
+                    dprint("[INPUT] Redirected URL", response.url)
+                dprint("[INPUT]", response.status_code, response.reason)
                 dprint("[INPUT] Response headers:", response.headers)
             if "content-length" in response.headers:
                 part_size = int(response.headers["content-length"])
         else:
-            if func_debug_level >= 3:
+            if function_debug_level >= 3:
                 dprint("[INPUT] Opening Pkg Part #{} as FILE PKG data stream".format(file_part["INDEX"]))
             #
             file_part["STREAM_TYPE"] = "file"
@@ -563,9 +621,9 @@ class PkgInputReader():
             except:
                 eprint("[INPUT] Could not open PKG FILE", file_part["url"])
                 eprint("", prefix=None)
-                sys.exit(2)
+                raise  ## re-raise
             #
-            file_part["STREAM"].seek(0, os.SEEK_END)
+            file_part["STREAM"].seek(0, io.SEEK_END)
             part_size = file_part["STREAM"].tell()
 
         ## Check file size
@@ -575,14 +633,17 @@ class PkgInputReader():
                 file_part["END_OFS"] = file_part["START_OFS"] + file_part["SIZE"]
             else:
                 if part_size != file_part["SIZE"]:
-                    eprint("[INPUT] File size differs from meta data {} <> {}", part_size, file_part["SIZE"])
+                    if not response is None:
+                        eprint("[INPUT]", response.status_code, response.reason)
+                        eprint("[INPUT] Response headers:", response.headers)
+                    eprint("[INPUT] File size differs from XML/JSON meta data ({} <> {})".format(part_size, file_part["SIZE"]))
                     eprint("", prefix=None)
                     sys.exit(2)
 
-        if func_debug_level >= 3:
+        if function_debug_level >= 3:
             dprint("[INPUT] Data stream is of class", file_part["STREAM"].__class__.__name__)
 
-    def read(self, offset, size, func_debug_level=0):
+    def read(self, offset, size, function_debug_level=0):
         result = bytearray()
         read_offset = offset
         read_size = size
@@ -597,7 +658,7 @@ class PkgInputReader():
             if (read_offset+read_buffer_size) > self._buffer_size:
                 read_buffer_size = self._buffer_size-read_offset
             #
-            if func_debug_level >= 3:
+            if function_debug_level >= 3:
                 dprint("[INPUT] Get offset {:#012x} size {}/{} bytes from buffer".format(read_offset, read_buffer_size, size))
             #
             result.extend(self._buffer[read_offset:read_offset+read_buffer_size])
@@ -624,13 +685,13 @@ class PkgInputReader():
             if (read_offset+read_buffer_size) > file_part["END_OFS"]:
                 read_buffer_size = file_part["END_OFS"]-read_offset
             #
-            if func_debug_level >= 3:
+            if function_debug_level >= 3:
                 dprint("[INPUT] Read offset {:#012x} size {}/{} bytes from Pkg Part #{} Offset {:#012x}".format(read_offset, read_buffer_size, size, file_part["INDEX"], file_offset))
             #
-            self.open(file_part, func_debug_level=max(0,func_debug_level))
+            self.open(file_part, function_debug_level=max(0,function_debug_level))
             #
             if file_part["STREAM_TYPE"] == "file":
-                file_part["STREAM"].seek(file_offset, os.SEEK_SET)
+                file_part["STREAM"].seek(file_offset, io.SEEK_SET)
                 result.extend(file_part["STREAM"].read(read_buffer_size))
                 ## supports the following.
                 ## * offset=9000 + size=-1 => all bytes from offset 9000 to the end
@@ -645,7 +706,7 @@ class PkgInputReader():
                 ## * bytes=9000- => all bytes from offset 9000 to the end
                 ## * bytes=-32 => last 32 bytes
                 reqheaders={"Range": "bytes={}-{}".format(file_offset, (file_offset + read_buffer_size - 1) if read_buffer_size > 0 else "")}
-                response = file_part["STREAM"].get(file_part["url"], headers=reqheaders)
+                response = file_part["STREAM"].get(file_part["url"], headers=reqheaders, timeout=60)
                 result.extend(response.content)
             #
             read_offset += read_buffer_size
@@ -653,7 +714,7 @@ class PkgInputReader():
 
         return result
 
-    def close(self, func_debug_level=0):
+    def close(self, function_debug_level=0):
         for file_part in self._parts:
             if not "STREAM" in file_part:
                 continue
@@ -746,6 +807,10 @@ def createArgParser():
     ## argparse: https://docs.python.org/3/library/argparse.html
 
     ## Create help texts
+    ## --> Hex Values
+    help_hexvalues = "Sources are not used as file path or URL.\n\
+They are used directly as hex data.\n\
+Block definitions are ignored."
     ## --> Values
     help_values = "Sources are not used as file path or URL.\n\
 They are used directly as data encoded in UTF-8.\n\
@@ -789,6 +854,7 @@ Calculate hashes and verify hashes plus RSA signatures for data blocks in PS3/PS
     parser.add_argument("-V", "--version", action="version", version=__version__)
     parser.add_argument("source", metavar="SOURCE", nargs="+", help="Path or URL to PKG/XML/JSON file")
     parser.add_argument("--values", action="store_true", help=help_values)
+    parser.add_argument("--hexvalues", action="store_true", help=help_hexvalues)
     parser.add_argument("--extra", action="store_true", help=help_extra)
     parser.add_argument("--block", "-b", action="append", help=help_block)
     parser.add_argument("--show", action="store_true", help=help_show)
@@ -998,8 +1064,14 @@ if __name__ == "__main__":
 
         if Exit_Code == 0 \
         and not Arguments.values \
+        and not Arguments.hexvalues \
         and not Blocks:
             eprint("No blocks stated")
+            Exit_Code = 2
+        #
+        if Arguments.values \
+        and Arguments.hexvalues:
+            eprint("Either specify --values or --hexvalues")
             Exit_Code = 2
         #
         if Exit_Code:
@@ -1015,14 +1087,18 @@ if __name__ == "__main__":
             del Values
             del Index
 
-        ## Process paths
+        ## Process paths and URLs
         for Source in Arguments.source:
-            if Arguments.values:
+            if Arguments.values \
+            or Arguments.hexvalues:
                 ## Process value
                 print(">>>>>>>>>> Value:", Source)
-                Data_Bytes = Source.encode("UTF-8")
-                if Debug_Level >= 2:
-                    dprint("Data bytes:", convertBytesToHexString(Data_Bytes, sep=""))
+                if Arguments.values:
+                    Data_Bytes = Source.encode("UTF-8")
+                elif Arguments.hexvalues:
+                    Data_Bytes = bytes.fromhex(Source)
+                #
+                print("Data bytes:", convertBytesToHexString(Data_Bytes, sep=""), "({})".format(len(Data_Bytes)))
 
                 ## Create hash digest
                 Hashes = {}
@@ -1071,9 +1147,13 @@ if __name__ == "__main__":
                 del Data_Bytes
             else:
                 ## Open PKG source
-                print(">>>>>>>>>> PKG Source:", Source)
-                Input_Stream = PkgInputReader(Source, func_debug_level=max(0, Debug_Level))
-                File_Size = Input_Stream.getSize(func_debug_level=max(0, Debug_Level))
+                print("# >>>>>>>>>> PKG Source:", Source)
+                #
+                try:
+                    Input_Stream = PkgInputReader(Source, function_debug_level=max(0, Debug_Level))
+                except requests.exceptions.HTTPError:
+                    continue
+                File_Size = Input_Stream.getSize(function_debug_level=max(0, Debug_Level))
                 print("File Size:", File_Size)
 
                 ## Convert blocks to file blocks
@@ -1347,7 +1427,7 @@ if __name__ == "__main__":
                                 Size = Block_Size
                             if Debug_Level >= 3:
                                 dprint("...offset {:#012x} size {}".format(Block_Offset, Size))
-                            Data_Bytes = bytes(Input_Stream.read(Block_Offset, Size, func_debug_level=max(0, Debug_Level)))
+                            Data_Bytes = bytes(Input_Stream.read(Block_Offset, Size, function_debug_level=max(0, Debug_Level)))
 
                             ## Update hashes with data (recursively)
                             updateAllHashes(Hashes, Data_Bytes)
@@ -1482,10 +1562,10 @@ if __name__ == "__main__":
                             del Result
                 #
                 del File_Block
-                print("------------------------------------------------------------")
+                print("# ------------------------------------------------------------")
 
                 ## Close data stream
-                Input_Stream.close(func_debug_level=max(0, Debug_Level))
+                Input_Stream.close(function_debug_level=max(0, Debug_Level))
                 del Input_Stream
         sys.stdout.flush()
         sys.stderr.flush()

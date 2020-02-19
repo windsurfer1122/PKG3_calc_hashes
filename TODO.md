@@ -1,24 +1,25 @@
 # PKG3_calc_hashes.py - To Do List
 
 ## To Do
-- [ ] Analysis
-  * [ ] Find out for which data the &quot;full header&quot; RSA signature from the [extended header](https://www.psdevwiki.com/ps3/PKG_files#PKG_.ext_Header) is for?<br>
-        e.g. -b=&lt;unknown start&gt;,&lt;unknwon +size/end&gt;,rsa-&lt;unknwon key&gt;,0x930 in [JP3608-PCSG01200_00-0000000000000001](http://zeus.dl.playstation.net/cdn/JP3608/PCSG01200_00/JP3608-PCSG01200_00-0000000000000001_bg_1_1f292cbeb41b685b395a8fe43a24c10338162fbc.pkg)
-  * [ ] Are there multiple hashes and or signatures for the same data block (not the 0x40 digest), like SHA-256 at a different offset than the digest or a RSA signature?
-    * Known cases:
-      * YES, meta data has digest and RSA-SHA1 sig directly following, where the RSA-SHA1 is only for the meta data itself, so excluding the  the digest
-      * YES, after the body there's a digest and RSA-SHA1 sig directly following, they are for all data up to the end of the body, where the RSA-SHA1 is build without the digest.<br>
-        If necessary packages are padded after these to a min. size of 100 KiB (-32)
 - [ ] Verify function
   * [ ] Implement RSA for other hashes than SHA-1 (RSA-SHA256, RSA-MD5)
 
 
 ## Wishlist
-- [ ] Calculate complete [PKG3 0x40 digest](http://www.psdevwiki.com/ps3/PKG_files#0x40_digest)
-  * How to compute the NpDrm Signature?
+./.
 
 
 ## Done
+- [x] Calculate complete [PKG3 0x40 digest](http://www.psdevwiki.com/ps3/PKG_files#0x40_digest)
+  * How to compute the NpDrm Signature? It's an ECDSA signature with the NPDRM pub key.
+- [x] Analysis
+  * [x] Find out for which data the &quot;full header&quot; RSA signature from the [extended header](https://www.psdevwiki.com/ps3/PKG_files#PKG_.ext_Header) is for?<br>
+        e.g. -b=&lt;unknown start&gt;,&lt;unknwon +size/end&gt;,rsa-&lt;unknwon key&gt;,0x930 in [JP3608-PCSG01200_00-0000000000000001](http://zeus.dl.playstation.net/cdn/JP3608/PCSG01200_00/JP3608-PCSG01200_00-0000000000000001_bg_1_1f292cbeb41b685b395a8fe43a24c10338162fbc.pkg)
+  * [x] Are there multiple hashes and or signatures for the same data block (not the 0x40 digest), like SHA-256 at a different offset than the digest or a RSA signature?
+    * Known cases:
+      * YES, meta data has digest and RSA-SHA1 sig directly following, where the RSA-SHA1 is only for the meta data itself, so excluding the  the digest
+      * YES, after the body there's a digest and RSA-SHA1 sig directly following, they are for all data up to the end of the body, where the RSA-SHA1 is build without the digest.<br>
+        If necessary packages are padded after these to a min. size of 100 KiB (-32)
 - [x] Verify function
   * [x] Read the following bytes with digest (0x40) or SHA-1 (0x20) and compare with result
   * [x] Verify RSA SHA-1 signatures (type 2 packages)

@@ -2,3 +2,5 @@ pycryptodomex
 cryptography
 requests
 aenum
+packaging
+ecdsa

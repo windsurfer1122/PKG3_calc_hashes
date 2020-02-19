@@ -1,4 +1,4 @@
-# PKG3_calc_hashes.py (c) 2018-2019 by "windsurfer1122"
+# PKG3_calc_hashes.py (c) 2018-2020 by "windsurfer1122"
 Calculate hashes and verify hashes plus RSA signatures for data blocks in PS3/PSX/PSP/PSV/PSM packages.
 
 ## Goals:
@@ -8,6 +8,7 @@ Calculate hashes and verify hashes plus RSA signatures for data blocks in PS3/PS
 * Build hashes for multiple data offsets and sizes in a single run, even when interleaved
 * Allow to also hash values (strings) directly and not just data from a file (e.g. hash for PSV update URLs)
 * Verify RSA signatures
+* Verify ECDSA signatures
 * Support http download streaming to avoid harddisk usage
 * Support multi-part packages (PS3: XML, PS4: JSON)
 * Easy to maintain and no compiler necessary (=interpreter language)
@@ -35,7 +36,7 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 * To calculate the SHA-256 for the whole package use: -b=0,0
 * Real life definitions for [JP3608-PCSG01200_00-0000000000000001](http://zeus.dl.playstation.net/cdn/JP3608/PCSG01200_00/JP3608-PCSG01200_00-0000000000000001_bg_1_1f292cbeb41b685b395a8fe43a24c10338162fbc.pkg) (5 MiB):
   * Main header digest: -b=0,0x80,digest
-  * Main+Ext header RSA: -b=0,0x0100,rsa-0
+  * Main+Ext header RSA: -b=0,0x100,rsa-0
   * Meta data digest+RSA: -b=0x280,+0x1d0,digest,rsa-0,0x490
   * Unencrypted PARAM.SFO: -b=0xbf0,+0x530,sha256,0x330
   * Head+Body digest+RSA: -b=0,0x4b0480,digest,rsa-0,0x4b04c0
@@ -44,21 +45,24 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 
 ## Contributions welcome
 * Especially information about how to interpret data is needed, e.g. link between data and RSA signatures
-* See TODO.MD what is still left to do
+* See TODO.md what is still left to do
 
 ## Requirements
 * Python Modules
-  * [pycryptodomex](https://www.pycryptodome.org/) >= 3.7.2 (note the X at the end)
+  * [pycryptodomex](https://www.pycryptodome.org/) >= 3.7.2 (note the X at the end of the module name)<br>
+    https://www.pycryptodome.org/en/latest/src/installation.html
   * [cryptography](https://cryptography.io/) (optional if pycryptodomex 3.7.2+ is not available)
   * [requests](http://python-requests.org/)
   * [aenum](https://bitbucket.org/stoneleaf/aenum)
+  * [packaging](https://github.com/pypa/packaging)
+  * [ecdsa](https://github.com/warner/python-ecdsa)
 
 ### Installing on Debian
 1. Python 3, which is the recommended version, and most modules can be installed via apt.<br>
-Install Python 3 and some modules via the following apt packages: `python3 python3-pip python3-requests python3-cryptography`.<br>
+Install Python 3 and some modules via the following apt packages: `python3 python3-pip python3-requests`.<br>
 
 1. Python 2 is the default on Debian, but comes with an outdated pip version until Debian 8.<br>
-__Starting with Debian 9 "Stretch"__ install Python 2 modules via the following apt packages: `python-pip python-future python-requests python-cryptography`.<br>
+__Starting with Debian 9 "Stretch"__ install Python 2 modules via the following apt packages: `python-pip python-future python-requests`.<br>
 For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](https://pypi.org/project/pip/) source:<br>
    ```
    apt-get purge python-pip python-dev python-future
@@ -69,12 +73,22 @@ For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](htt
    ```
 
 1. Install further necessary Python modules via pip.
-   * Install pycryptodomex module:
+   * Install pycryptodomex module:<br>
+     https://www.pycryptodome.org/en/latest/src/installation.html
      * Python 3: `pip3 install --upgrade pycryptodomex`
      * Python 2: `pip2 install --upgrade pycryptodomex`
+   * Install cryptography module:
+     * Python 3: `pip3 install --upgrade cryptography`
+     * Python 2: `pip2 install --upgrade cryptography`
    * Install aenum module:
      * Python 3: `pip3 install --upgrade aenum`
      * Python 2: `pip2 install --upgrade aenum`
+   * Install packaging module:
+     * Python 3: `pip3 install --upgrade packaging`
+     * Python 2: `pip2 install --upgrade packaging`
+   * Install ecdsa module:
+     * Python 3: `pip3 install --upgrade ecdsa`
+     * Python 2: `pip2 install --upgrade ecdsa`
 
 ### Installing on Windows
 1. Install Python<br>
@@ -90,10 +104,13 @@ For __Debian up to 8 "Jessie"__ use the pip version from the original [PyPi](htt
 1. Install necessary Python modules via pip.
    * Start an __elevated(!!!)__ Command Prompt (Run As Admin via Right Click)
    * Update PIP itself first: `python -m pip install --upgrade pip`
-   * Install requests module: `pip install --upgrade requests`
-   * Install pycryptodomex module: `pip install --upgrade pycryptodomex`
+   * Install pycryptodomex module: `pip install --upgrade pycryptodomex`<br>
+     https://www.pycryptodome.org/en/latest/src/installation.html
    * Install cryptography module: `pip install --upgrade cryptography`
+   * Install requests module: `pip install --upgrade requests`
    * Install aenum module: `pip install --upgrade aenum`
+   * Install packaging module: `pip install --upgrade packaging`
+   * Install ecdsa module: `pip install --upgrade ecdsa`
    * Exit Command Prompt: `exit`
 
 Executing python scripts can be done via Windows Explorer or a Command Prompt. Normally no elevation is necessary for script execution, except when the python script wants to change something in the system internals.

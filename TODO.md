@@ -1,8 +1,7 @@
 # PKG3_calc_hashes.py - To Do List
 
 ## To Do
-- [ ] Verify function
-  * [ ] Implement RSA for other hashes than SHA-1 (RSA-SHA256, RSA-MD5)
+./.
 
 
 ## Wishlist
@@ -21,6 +20,7 @@
       * YES, after the body there's a digest and RSA-SHA1 sig directly following, they are for all data up to the end of the body, where the RSA-SHA1 is build without the digest.<br>
         If necessary packages are padded after these to a min. size of 100 KiB (-32)
 - [x] Verify function
+  * [x] Implement RSA for other hashes than SHA-1 (RSA-SHA256, RSA-MD5)
   * [x] Read the following bytes with digest (0x40) or SHA-1 (0x20) and compare with result
   * [x] Verify RSA SHA-1 signatures (type 2 packages)
   * [x] Allow multiple definitions of the same block or just multiple verify parameters per block

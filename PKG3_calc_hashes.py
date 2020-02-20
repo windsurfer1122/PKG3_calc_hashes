@@ -57,7 +57,7 @@ from builtins import bytes
 
 ## Version definition
 ## see https://www.python.org/dev/peps/pep-0440/
-__version__ = "2020.02.19"
+__version__ = "2020.02.20"
 __author__ = "https://github.com/windsurfer1122/PKG3_calc_hashes"
 __license__ = "GPL"
 __copyright__ = "Copyright 2018-2020, windsurfer1122"
@@ -78,6 +78,7 @@ import random
 import copy
 import base64
 import xml.etree.ElementTree
+import math
 
 ## pip install requests
 ## https://pypi.org/project/requests/
@@ -271,15 +272,23 @@ CONST_HASH_SHA1 = "SHA1"
 CONST_HASH_SHA256 = "SHA256"
 CONST_HASH_CMAC = "CMAC"
 CONST_HASH_DIGEST = "DIGEST"
-CONST_HASH_RSA = "RSA"
+CONST_SIGNATURE_RSA = "RSA"
 CONST_HASH_HMAC = "HMAC"
+CONST_SIGNATURE_ECDSA = "ECDSA"
 CONST_HASHES = {
-    CONST_HASH_MD5: { "SIZE": 16, "MODULE": Cryptodome.Hash.MD5, },
-    CONST_HASH_SHA1: { "SIZE": 20, "MODULE": Cryptodome.Hash.SHA1, },
-    CONST_HASH_SHA256: { "SIZE": 32, "MODULE": Cryptodome.Hash.SHA256, },
-    CONST_HASH_CMAC: { "SIZE": 16, },
+    CONST_HASH_MD5: { "SIZE": Cryptodome.Hash.MD5.digest_size, "MODULE": Cryptodome.Hash.MD5, },
+    CONST_HASH_SHA1: { "SIZE": Cryptodome.Hash.SHA1.digest_size, "MODULE": Cryptodome.Hash.SHA1, },
+    CONST_HASH_SHA256: { "SIZE": Cryptodome.Hash.SHA256.digest_size, "MODULE": Cryptodome.Hash.SHA256, },
+    CONST_HASH_CMAC: { "SIZE": Cryptodome.Cipher.AES.block_size, },  ## size depends on cipher (here always AES)
     CONST_HASH_DIGEST: { "SIZE": 0x40, },
 }
+for Key, Values in CONST_HASHES.items():
+    Values["BITLEN"] = Values["SIZE"] * 8
+    if Debug_Level >= 3:
+        dprint("HASH {} SIZE:".format(Key), Values["SIZE"])
+        dprint("HASH {} BITLEN:".format(Key), Values["BITLEN"])
+del Values
+del Key
 ## --> Platforms
 class CONST_BLOCK_TYPE(aenum.OrderedEnum):
     def __str__(self):
@@ -324,9 +333,9 @@ del Key
 ## https://playstationdev.wiki/psvitadevwiki/index.php?title=Keys#RSA_PKG_Keys
 CONST_PKG3_RSA_PUB_EXP = 0x010001
 CONST_PKG3_RSA_PUB_KEYS = {
-   0: { "KEY": "u9tqoy47UabUcI1fyYmZGTlaKq2D6Y9IZMO6Q6XWkG9HbnNTW/qO+cNyCCah8ie4/wb2nzmWOYdjXr/7ylHQ+47WvxeLvqj2rt1ktAE5KQU/Fpt+rZdpjnXAYK2tzHAm7/5TFnL53RoRcY1KTl1DoWJfUzYGmSV86hoFFJnDH/fkr8y5qdoucDHI5GjBYS0aDrwi9CswouU9gCvFrOinGYuQkgKsvCNOf8fYMhE3s7KtDw0JhdyJE2P6o62NN5rWWnGUrqCdwpB708iIllZUV6ZZpmKq1Ob7QBiyzfGIbEPhaq3hq6deiHn2udVFx8TQJWcQfN4cGsxD5Ru/uFGd1Q==", "DESC": "\"PSP\" [default]", },
-   1: { "KEY": "hdcveaZ8mgTSaRsdLTAnSnMc9iTjvGj+izutne+1B4TEu69j1cxDERmREoiFTjjqYddXGzPrEsetO81GEPocobTHfSBFUNb3KrHmgKRgnM+JC5U6rGzc2u2fECcphDkUykqIvLiNQe4NwOTT5lenlQEoB8UArhOgtEJH1eQLX55KzvRsD6KILfP1EJYca4rhE57mYTUM3Yx6XU+cHNVeBEnLAGWojPY3ZmT2xPUir8nFVvFqNtp5+CLSjTwvY93RGOYrFivHPivhsT+Dke7kYnDYIMi786AjaD6h0HnXtNby9VenOhaKoj+IKs/bqaCzfH6urmuIuGnezdaJKBOmww==", "DESC": "\"PSV\"", },
-   2: { "KEY": "jlw7Bc7PwMoTKMJQCddAsnN2II9nisRU0BW7PmezfQWwmZC2f2wP5j4wrHzJPLKhyDUXzM3zeuei3j4fgXkZsZRPWrycAMhG0BqaXgFP8Vw7hAZpriXQa6BEnvbtHBTXI+upFRdWuU2lJl+TrjZIFr4VIoWwGlbjgPKFrSEG1rVB2VCyyEumhVmzoQEVQDeAioWITTp0YSr3b2i2RqcP6w7yRIdmcbfLL/DRzJJrfP+MRAwSrjIuOh6ihW78okvZuJZ8PyYDjvRLJq8jpoSBS84ogGuB3JInzjh/OCCvE/upZPOjQ9aSFU7r65F6voYehO6tcowwozRziVN26f3GLQ==", "DESC": "\"PSV LiveArea\"", },
+   0: { "KEY": "u9tqoy47UabUcI1fyYmZGTlaKq2D6Y9IZMO6Q6XWkG9HbnNTW/qO+cNyCCah8ie4/wb2nzmWOYdjXr/7ylHQ+47WvxeLvqj2rt1ktAE5KQU/Fpt+rZdpjnXAYK2tzHAm7/5TFnL53RoRcY1KTl1DoWJfUzYGmSV86hoFFJnDH/fkr8y5qdoucDHI5GjBYS0aDrwi9CswouU9gCvFrOinGYuQkgKsvCNOf8fYMhE3s7KtDw0JhdyJE2P6o62NN5rWWnGUrqCdwpB708iIllZUV6ZZpmKq1Ob7QBiyzfGIbEPhaq3hq6deiHn2udVFx8TQJWcQfN4cGsxD5Ru/uFGd1Q==", "DESC": "PSP [default]", },
+   1: { "KEY": "hdcveaZ8mgTSaRsdLTAnSnMc9iTjvGj+izutne+1B4TEu69j1cxDERmREoiFTjjqYddXGzPrEsetO81GEPocobTHfSBFUNb3KrHmgKRgnM+JC5U6rGzc2u2fECcphDkUykqIvLiNQe4NwOTT5lenlQEoB8UArhOgtEJH1eQLX55KzvRsD6KILfP1EJYca4rhE57mYTUM3Yx6XU+cHNVeBEnLAGWojPY3ZmT2xPUir8nFVvFqNtp5+CLSjTwvY93RGOYrFivHPivhsT+Dke7kYnDYIMi786AjaD6h0HnXtNby9VenOhaKoj+IKs/bqaCzfH6urmuIuGnezdaJKBOmww==", "DESC": "PSV", },
+   2: { "KEY": "jlw7Bc7PwMoTKMJQCddAsnN2II9nisRU0BW7PmezfQWwmZC2f2wP5j4wrHzJPLKhyDUXzM3zeuei3j4fgXkZsZRPWrycAMhG0BqaXgFP8Vw7hAZpriXQa6BEnvbtHBTXI+upFRdWuU2lJl+TrjZIFr4VIoWwGlbjgPKFrSEG1rVB2VCyyEumhVmzoQEVQDeAioWITTp0YSr3b2i2RqcP6w7yRIdmcbfLL/DRzJJrfP+MRAwSrjIuOh6ihW78okvZuJZ8PyYDjvRLJq8jpoSBS84ogGuB3JInzjh/OCCvE/upZPOjQ9aSFU7r65F6voYehO6tcowwozRziVN26f3GLQ==", "DESC": "PSV LiveArea", },
 }
 for Key, Values in CONST_PKG3_RSA_PUB_KEYS.items():
     if isinstance(Values["KEY"], unicode):
@@ -346,12 +355,13 @@ del Values
 del Key
 
 ##
-## VSH Definitions
+## ECDSA Definitions
 ##
 #
 ## --> ECDSA Curves
-CONST_ECDSA_VSH_CURVES = {
+CONST_ECDSA_CURVES = {
     1: {
+         "DESC": "VSH #1",
          "P":    { "INT": "//////////8AAAAB//////////8=", "DESC": "VSH #1 P", },
          "A":    { "INT": "//////////8AAAAB//////////w=", "DESC": "VSH #1 A", },
          "B":    { "INT": "ZdFIjANZ4jStyVvTkIAUvZGlJfk=", "DESC": "VSH #1 B", },
@@ -360,6 +370,7 @@ CONST_ECDSA_VSH_CURVES = {
          "GY":   { "INT": "YENYRW0KHLKQjekPJ9dcgr7BCMA=", "DESC": "VSH #1 Gy", },
     },
     2: {
+         "DESC": "VSH #2",
          "P":    { "INT": "//////////8AAAAB//////////8=", "DESC": "VSH #2 P", },
          "A":    { "INT": "//////////8AAAAB//////////w=", "DESC": "VSH #2 A", },
          "B":    { "INT": "povtwzQYApwdPOM7mjIfzLueDws=", "DESC": "VSH #2 B", },
@@ -368,23 +379,34 @@ CONST_ECDSA_VSH_CURVES = {
          "GY":   { "INT": "WVhVfrHbABJgQlUk28N51axfSt8=", "DESC": "VSH #2 Gy", },
     },
 }
-for Number, Curve in CONST_ECDSA_VSH_CURVES.items():
+for Number, Curve in CONST_ECDSA_CURVES.items():
     for Key in Curve:
-        if isinstance(Curve[Key]["INT"], unicode):
-            Curve[Key]["INT"] = base64.standard_b64decode(Curve[Key]["INT"])
-        elif isinstance(Curve[Key]["INT"], bytes) \
-        or isinstance(Curve[Key]["INT"], bytearray):
-            eprint("VSH ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"]), prefix="[CONVERT] ")
-        elif isinstance(Curve[Key]["INT"], int):
-            eprint("VSH ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
-        if isinstance(Curve[Key]["INT"], bytes) \
-        or isinstance(Curve[Key]["INT"], bytearray):
-            Curve[Key]["INT"] = int.from_bytes(Curve[Key]["INT"], byteorder="big")
+        if isinstance(Curve[Key], dict) \
+        and "INT" in Curve[Key]:
+            if isinstance(Curve[Key]["INT"], unicode):
+                Curve[Key]["INT"] = base64.standard_b64decode(Curve[Key]["INT"])
+            elif isinstance(Curve[Key]["INT"], bytes) \
+            or isinstance(Curve[Key]["INT"], bytearray):
+                eprint("ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"]), prefix="[CONVERT] ")
+            elif isinstance(Curve[Key]["INT"], int):
+                eprint("ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
+            #
+            if isinstance(Curve[Key]["INT"], bytes) \
+            or isinstance(Curve[Key]["INT"], bytearray):
+                Curve[Key]["INT"] = int.from_bytes(Curve[Key]["INT"], byteorder="big")
         #
         if Debug_Level >= 3:
-            Value = convertBytesToHexString(Curve[Key]["INT"].to_bytes(0x14, byteorder="big"), sep="")
-            dprint("VSH ECDSA Curve #{}.{:2}:".format(Number, Key), Value)
+            if isinstance(Curve[Key], dict) \
+            and "INT" in Curve[Key]:
+                Value = convertBytesToHexString(Curve[Key]["INT"].to_bytes(0x14, byteorder="big"), sep="")
+            else:
+                Value = Curve[Key]
+            dprint("ECDSA Curve #{} {:2}:".format(Number, Key), Value)
             del Value
+    Curve["BITLEN"] = Curve["N"]["INT"].bit_length()
+    Curve["SIZE"] = math.ceil(Curve["BITLEN"] / 8.0)
+    if Debug_Level >= 3:
+        dprint("ECDSA Curve #{} BITLEN:".format(Number), Curve["BITLEN"])
     # --> Build Curve
     Curve["CURVE"] = ecdsa.ellipticcurve.CurveFp(Curve["P"]["INT"], Curve["A"]["INT"], Curve["B"]["INT"])
     Curve["POINT"] = ecdsa.ellipticcurve.PointJacobi(Curve["CURVE"], Curve["GX"]["INT"], Curve["GY"]["INT"], 1, order=Curve["N"]["INT"], generator=False)
@@ -392,19 +414,21 @@ del Key
 del Curve
 del Number
 ## --> ECDSA Public Key
-CONST_ECDSA_VSH_PUBKEYS = {
-    "KLIC": {
-              "CURVE": 2,
-              "X": { "INT": "YiewCgKFb7BBCIdnGeCgGDKR7rk=", "DESC": "VSH KLicensee PubKey X", },
-              "Y": { "INT": "bnNqv4H3DukWGw3esCZ2Gv97yFs=", "DESC": "VSH KLicensee PubKey Y", },
+CONST_ECDSA_PUB_KEYS = {
+    1: {
+         "DESC": "VSH KLicensee PubKey",
+         "CURVE": 2,
+         "X": { "INT": "YiewCgKFb7BBCIdnGeCgGDKR7rk=", "DESC": "VSH KLicensee PubKey X", },
+         "Y": { "INT": "bnNqv4H3DukWGw3esCZ2Gv97yFs=", "DESC": "VSH KLicensee PubKey Y", },
     },
-    "NPDRM": {
-               "CURVE": 2,
-               "X": { "INT": "5nkuRGzronvK3zdLmVBP2OgK3+s=", "DESC": "VSH NPDRM PubKey X", },
-               "Y": { "INT": "Pmbec//ljTKRIhxlAYwDjTgiw8k=", "DESC": "VSH NPDRM PubKey Y", },
+    2: {
+         "DESC": "VSH NPDRM PubKey [default]",
+         "CURVE": 2,
+         "X": { "INT": "5nkuRGzronvK3zdLmVBP2OgK3+s=", "DESC": "VSH NPDRM PubKey X", },
+         "Y": { "INT": "Pmbec//ljTKRIhxlAYwDjTgiw8k=", "DESC": "VSH NPDRM PubKey Y", },
     },
 }
-for Number, PubKey in CONST_ECDSA_VSH_PUBKEYS.items():
+for Number, PubKey in CONST_ECDSA_PUB_KEYS.items():
     for Key in PubKey:
         if isinstance(PubKey[Key], dict) \
         and "INT" in PubKey[Key]:
@@ -412,9 +436,9 @@ for Number, PubKey in CONST_ECDSA_VSH_PUBKEYS.items():
                 PubKey[Key]["INT"] = base64.standard_b64decode(PubKey[Key]["INT"])
             elif isinstance(PubKey[Key]["INT"], bytes) \
             or isinstance(PubKey[Key]["INT"], bytearray):
-                eprint("VSH ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"]), prefix="[CONVERT] ")
+                eprint("ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"]), prefix="[CONVERT] ")
             elif isinstance(PubKey[Key]["INT"], int):
-                eprint("VSH ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
+                eprint("ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
             #
             if isinstance(PubKey[Key]["INT"], bytes) \
             or isinstance(PubKey[Key]["INT"], bytearray):
@@ -426,12 +450,11 @@ for Number, PubKey in CONST_ECDSA_VSH_PUBKEYS.items():
                 Value = convertBytesToHexString(PubKey[Key]["INT"].to_bytes(0x14, byteorder="big"), sep="")
             else:
                 Value = PubKey[Key]
-            dprint("VSH ECDSA {} PubKey {}:".format(Number, Key), Value)
+            dprint("ECDSA PubKey #{} {}:".format(Number, Key), Value)
             del Value
     # --> Build Public Key
-    PubPoint = ecdsa.ellipticcurve.Point(CONST_ECDSA_VSH_CURVES[PubKey["CURVE"]]["CURVE"], PubKey["X"]["INT"], PubKey["Y"]["INT"], order=CONST_ECDSA_VSH_CURVES[PubKey["CURVE"]]["N"]["INT"])
-    PubKey["PUBKEY"] = ecdsa.ecdsa.Public_key(CONST_ECDSA_VSH_CURVES[PubKey["CURVE"]]["POINT"], PubPoint, verify=True)
-
+    PubPoint = ecdsa.ellipticcurve.Point(CONST_ECDSA_CURVES[PubKey["CURVE"]]["CURVE"], PubKey["X"]["INT"], PubKey["Y"]["INT"], order=CONST_ECDSA_CURVES[PubKey["CURVE"]]["N"]["INT"])
+    PubKey["PUBKEY"] = ecdsa.ecdsa.Public_key(CONST_ECDSA_CURVES[PubKey["CURVE"]]["POINT"], PubPoint, verify=True)
 del PubPoint
 del Key
 del PubKey
@@ -935,10 +958,10 @@ Block definitions are ignored."
     ## --> Extra
     help_extra = "Calculate extra hashes. All types with all known keys."
     ## --> Block
-    help_block = "=<[-]startofs>,<+size|[-]endofs>[,<verify:digest|sha1|sha256|cmac[-<key>]|rsa[-<key>]>[,<[-]verifyofs>]]\n\
-Data Block to build hashes and/or check RSA signatures for.\n\
-NOTE: Equal sign is recommended and necessary for start offsets with dash/\n\
-      minus symbol for relative offsets to file end.\n"
+    help_block = "=<[-]startofs>,<+size|[-]endofs>[,<verify:digest|sha1|sha256|cmac[-<aeskey>]|rsa[-<hash>[-<pubkey>]]|ecdsa[-<hash>[-<pubkey>]]>[,<[-]verifyofs>]]\n\
+Data Block to build hashes and/or check signatures for.\n\
+NOTE: Equal sign is recommended and necessary for start offsets with minus/\n\
+      hyphen symbol for relative offsets to file end.\n"
     #
     help_block = "".join((help_block, "Available PKG3 AES Keys:\n"))
     for key, values in CONST_PKG3_AES_KEYS.items():
@@ -949,6 +972,10 @@ NOTE: Equal sign is recommended and necessary for start offsets with dash/\n\
     #
     help_block = "".join((help_block, "Available PKG3 RSA Public Keys:\n"))
     for key, values in CONST_PKG3_RSA_PUB_KEYS.items():
+        help_block = "".join((help_block, "  {:#2} = {}\n".format(key, values["DESC"])))
+    #
+    help_block = "".join((help_block, "Available PKG3 ECDSA Public Keys:\n"))
+    for key, values in CONST_ECDSA_PUB_KEYS.items():
         help_block = "".join((help_block, "  {:#2} = {}\n".format(key, values["DESC"])))
     ## --> Show
     help_show = "Show all blocks, e.g. verify data blocks, and not only main data blocks."
@@ -962,7 +989,7 @@ NOTE: Equal sign is recommended and necessary for start offsets with dash/\n\
 
     ## Create description
     description = "%(prog)s {version}\n{copyright}\n{author}\n\
-Calculate hashes and verify hashes plus RSA signatures for data blocks in PS3/PSX/PSP/PSV/PSM packages.".format(version=__version__, copyright=__copyright__, author=__author__)
+Calculate hashes and verify hashes plus signatures for data blocks in PS3/PSX/PSP/PSV/PSM packages.".format(version=__version__, copyright=__copyright__, author=__author__)
     ## Create epilog
     epilog = "If you state URLs then only the necessary bytes are downloaded into memory."
 
@@ -1101,52 +1128,119 @@ if __name__ == "__main__":
                             Verify_Block["HASH"] = CONST_HASH_CMAC
                             Verify_Block["KEY"] = 0
                             Verify_Block["HASH2"] = CONST_HASH_SHA1
-                            Verify_Block["KEY2"] = None
+                            Verify_Block["KEY2"] = 2
                             New_Block["VERIFY"].append(Verify_Block)
                         elif Upper_Value == CONST_HASH_CMAC \
                         or Upper_Value.startswith("CMAC-"):
                             Verify_Block = newVerifyBlock(New_Block["NUMBER"], CONST_HASH_CMAC)
-                            Verify_Block["SIZE"] = CONST_HASHES[CONST_HASH_CMAC]["SIZE"]
-                            Verify_Block["HASH"] = CONST_HASH_CMAC
                             #
-                            Check_Value = Value.split("-")
-                            if len(Check_Value) > 1:
+                            Verify_Block["HASH"] = CONST_HASH_CMAC
+                            Verify_Block["SIZE"] = CONST_HASHES[Verify_Block["HASH"]]["SIZE"]
+                            #
+                            Check_Values = Value.split("-")
+                            Values_Length = len(Check_Values)
+                            if Values_Length > 2:
+                                eprint("Option --block #{}: {} includes too many parameters ({}>2)".format(New_Block["NUMBER"], Value, Values_Length))
+                                Exit_Code = 2
+                            elif Values_Length > 1:
+                                ## AES key
                                 try:
-                                    Verify_Block["KEY"] = int(Check_Value[1], 0)
+                                    Verify_Block["KEY"] = int(Check_Values[1], 0)
                                     #
                                     if not Verify_Block["KEY"] in CONST_PKG3_AES_KEYS:
-                                        eprint("Option --block #{}: {} refers to an unknown AES key".format(New_Block["NUMBER"], Value))
+                                        eprint("Option --block #{}: {} refers to an unknown AES key #{}".format(New_Block["NUMBER"], Value, Verify_Block["KEY"]))
                                         Exit_Code = 2
                                 except:
-                                    eprint("Option --block #{}: {} refers to a AES key which is not a number".format(New_Block["NUMBER"], Value))
+                                    eprint("Option --block #{}: {} refers to an AES key which is not a number {}".format(New_Block["NUMBER"], Value, Check_Values[1]))
                                     Exit_Code = 2
-                            else:
+                            if Verify_Block["KEY"] is None:
                                 Verify_Block["KEY"] = 0
-                            del Check_Value
+                            del Values_Length
+                            del Check_Values
                             #
                             New_Block["VERIFY"].append(Verify_Block)
-                        elif Upper_Value == CONST_HASH_RSA \
+                        elif Upper_Value == CONST_SIGNATURE_RSA \
                         or Upper_Value.startswith("RSA-"):
-                            Verify_Block = newVerifyBlock(New_Block["NUMBER"], CONST_HASH_RSA)
-                            Verify_Block["HASH"] = CONST_HASH_SHA1  ## TODO: allow other hashes too
+                            Verify_Block = newVerifyBlock(New_Block["NUMBER"], CONST_SIGNATURE_RSA)
                             #
-                            Check_Value = Value.split("-")
-                            if len(Check_Value) > 1:
-                                try:
-                                    Verify_Block["KEY"] = int(Check_Value[1], 0)
-                                    #
-                                    if not Verify_Block["KEY"] in CONST_PKG3_RSA_PUB_KEYS:
-                                        eprint("Option --block #{}: {} refers to an unknown RSA public key".format(New_Block["NUMBER"], Value))
-                                        Exit_Code = 2
-                                    else:
-                                        Verify_Block["SIZE"] = CONST_PKG3_RSA_PUB_KEYS[Verify_Block["KEY"]]["SIZE"]
-                                except:
-                                    eprint("Option --block #{}: {} refers to a RSA public key which is not a number".format(New_Block["NUMBER"], Value))
+                            Check_Values = Value.split("-")
+                            Values_Length = len(Check_Values)
+                            if Values_Length > 3:
+                                eprint("Option --block #{}: {} includes too many parameters ({}>2)".format(New_Block["NUMBER"], Value, Values_Length))
+                                Exit_Code = 2
+                            elif Values_Length > 1:
+                                ## hash type
+                                Upper_Value2 = Check_Values[1].upper()
+                                if not Upper_Value2 in CONST_HASHES:
+                                    eprint("Option --block #{}: {} refers to an unknown hash {}".format(New_Block["NUMBER"], Value, Upper_Value2))
                                     Exit_Code = 2
-                            else:
+                                else:
+                                    Verify_Block["HASH"] = Upper_Value2
+                                del Upper_Value2
+                                ## RSA public key
+                                if Values_Length > 2:
+                                    try:
+                                        Verify_Block["KEY"] = int(Check_Values[2], 0)
+                                        #
+                                        if not Verify_Block["KEY"] in CONST_PKG3_RSA_PUB_KEYS:
+                                            eprint("Option --block #{}: {} refers to an unknown RSA public key #{}".format(New_Block["NUMBER"], Value, Verify_Block["KEY"]))
+                                            Exit_Code = 2
+                                    except:
+                                        eprint("Option --block #{}: {} refers to a RSA public key which is not a number {}".format(New_Block["NUMBER"], Value, Check_Values[2]))
+                                        Exit_Code = 2
+                            if Verify_Block["HASH"] is None:
+                                Verify_Block["HASH"] = CONST_HASH_SHA1
+                            if Verify_Block["KEY"] is None:
                                 Verify_Block["KEY"] = 0
+                            if Verify_Block["KEY"] in CONST_PKG3_RSA_PUB_KEYS:
                                 Verify_Block["SIZE"] = CONST_PKG3_RSA_PUB_KEYS[Verify_Block["KEY"]]["SIZE"]
-                            del Check_Value
+                            del Values_Length
+                            del Check_Values
+                            #
+                            New_Block["VERIFY"].append(Verify_Block)
+                        elif Upper_Value == CONST_SIGNATURE_ECDSA \
+                        or Upper_Value.startswith("ECDSA-"):
+                            Verify_Block = newVerifyBlock(New_Block["NUMBER"], CONST_SIGNATURE_ECDSA)
+                            #
+                            Check_Values = Value.split("-")
+                            Values_Length = len(Check_Values)
+                            if Values_Length > 3:
+                                eprint("Option --block #{}: {} includes too many parameters ({}>3)".format(New_Block["NUMBER"], Value, Values_Length))
+                                Exit_Code = 2
+                            elif Values_Length > 1:
+                                ## hash type
+                                Upper_Value2 = Check_Values[1].upper()
+                                if not Upper_Value2 in CONST_HASHES:
+                                    eprint("Option --block #{}: {} refers to an unknown hash {}".format(New_Block["NUMBER"], Value, Upper_Value2))
+                                    Exit_Code = 2
+                                else:
+                                    Verify_Block["HASH"] = Upper_Value2
+                                del Upper_Value2
+                                ## ECDSA public key
+                                if Values_Length > 2:
+                                    try:
+                                        Verify_Block["KEY"] = int(Check_Values[2], 0)
+                                        #
+                                        if not Verify_Block["KEY"] in CONST_ECDSA_PUB_KEYS:
+                                            eprint("Option --block #{}: {} refers to an unknown ECDSA public key #{}".format(New_Block["NUMBER"], Value, Verify_Block["KEY"]))
+                                            Exit_Code = 2
+                                    except:
+                                        eprint("Option --block #{}: {} refers to an ECDSA public key which is not a number {}".format(New_Block["NUMBER"], Value, Check_Values[2]))
+                                        Exit_Code = 2
+                            if Verify_Block["HASH"] is None:
+                                Verify_Block["HASH"] = CONST_HASH_SHA1
+                            if Verify_Block["KEY"] is None:
+                                Verify_Block["KEY"] = 2
+                            if Verify_Block["KEY"] in CONST_ECDSA_PUB_KEYS:
+                                Verify_Block["SIZE"] = CONST_ECDSA_CURVES[CONST_ECDSA_PUB_KEYS[Verify_Block["KEY"]]["CURVE"]]["SIZE"] * 2
+                                Bit_Length1 = CONST_HASHES[Verify_Block["HASH"]]["BITLEN"]
+                                Bit_Length2 = CONST_ECDSA_CURVES[CONST_ECDSA_PUB_KEYS[Verify_Block["KEY"]]["CURVE"]]["BITLEN"]
+                                if Bit_Length1 > Bit_Length2:
+                                    eprint("Option --block #{}: {} hash bit length is bigger than ECDSA public key bit length ({}>{}), so verification will fail".format(New_Block["NUMBER"], Value, Bit_Length1, Bit_Length2), prefix="[WARNING] ")
+                                del Bit_Length2
+                                del Bit_Length1
+                            del Values_Length
+                            del Check_Values
                             #
                             New_Block["VERIFY"].append(Verify_Block)
                         else:
@@ -1600,7 +1694,17 @@ if __name__ == "__main__":
                         if Arguments.show:
                             print("------------------------------------------------------------")
                             displayBlock(File_Block, block_prefix=Block_Prefix)
-                            print("  Type", File_Block["CHECK"])
+                            print("  Type:", File_Block["CHECK"])
+                            if not File_Block["HASH"] is None:
+                                print("  Hash:", File_Block["HASH"])
+                            if not File_Block["KEY"] is None:
+                                print("  Key:", File_Block["KEY"])
+                            if "HASH2" in File_Block\
+                            and not File_Block["HASH2"] is None:
+                                print("  Hash2:", File_Block["HASH2"])
+                            if "KEY2" in File_Block\
+                            and not File_Block["KEY2"] is None:
+                                print("  Key2:", File_Block["KEY2"])
                             print("  Data", convertBytesToHexString(File_Block["DATA"], sep=""))
                     elif File_Block["TYPE"] == CONST_BLOCK_TYPE.DATA:
                         print("------------------------------------------------------------")
@@ -1649,14 +1753,14 @@ if __name__ == "__main__":
                                 #
                                 if Verify_Block["CHECK"] == CONST_HASH_HMAC:
                                     print("NOT NEEDED!")
-                                elif Verify_Block["CHECK"] == CONST_HASH_RSA:
+                                elif Verify_Block["CHECK"] == CONST_SIGNATURE_RSA:
                                     Signature_Check = Cryptodome.Signature.pkcs1_15.new(CONST_PKG3_RSA_PUB_KEYS[Verify_Block["KEY"]]["RSA"])
                                     try:
                                         Signature_Check.verify(File_Block["HASHES"][Verify_Block["HASH"]], Verify_Block["DATA"])
                                         Result = True
                                     except ValueError:
                                         Result = False
-                                    print("    {}-{} PubKey #{}".format(Verify_Block["CHECK"], Verify_Block["HASH"], Verify_Block["KEY"]), "from offset {:#012x}:".format(Verify_Block["STARTOFS"]), end=" ")
+                                    print("    {}-{} Signature with PubKey #{}".format(Verify_Block["CHECK"], Verify_Block["HASH"], Verify_Block["KEY"]), "from offset {:#012x}:".format(Verify_Block["STARTOFS"]), end=" ")
                                     print("OK" if Result else "FAILED!!!")
                                 elif Verify_Block["CHECK"] == CONST_HASH_DIGEST:
                                     ## CMAC
@@ -1670,9 +1774,9 @@ if __name__ == "__main__":
                                     del Signature_R
                                     del Offset
                                     #
-                                    Sha1_Int = int.from_bytes(File_Block["DIGESTS"][Verify_Block["HASH2"]], byteorder="big")
-                                    Result2 = CONST_ECDSA_VSH_PUBKEYS["NPDRM"]["PUBKEY"].verifies(Sha1_Int, Signature)
-                                    del Sha1_Int
+                                    Check_Integer = int.from_bytes(File_Block["DIGESTS"][Verify_Block["HASH2"]], byteorder="big")
+                                    Result2 = CONST_ECDSA_PUB_KEYS[Verify_Block["KEY2"]]["PUBKEY"].verifies(Check_Integer, Signature)
+                                    del Check_Integer
                                     del Signature
                                     ## SHA-1 (last 8 bytes)
                                     Result3 = File_Block["DIGESTS"][Verify_Block["HASH2"]][-8:] == Verify_Block["DATA"][-8:]
@@ -1681,11 +1785,26 @@ if __name__ == "__main__":
                                     print("    {}".format(Verify_Block["CHECK"]), "from offset {:#012x}:".format(Verify_Block["STARTOFS"]), end=" ")
                                     print("OK" if Result else "FAILED!!!")
                                     print("      {} AES Key #{}:".format(Verify_Block["HASH"], Verify_Block["KEY"]), "OK" if Result1 else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"][0:CONST_HASHES[Verify_Block["HASH"]]["SIZE"]], sep="")))
-                                    print("      {}:".format("ECDSA Signature"), "OK" if Result2 else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"][Offset:Offset+0x28], sep="")))
+                                    print("      {}-{} Signature with PubKey #{}:".format(CONST_SIGNATURE_ECDSA, Verify_Block["HASH2"], Verify_Block["KEY2"]), "OK" if Result2 else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"][Offset:Offset+0x28], sep="")))
                                     print("      {} (last 8 bytes):".format(Verify_Block["HASH2"]), "OK" if Result3 else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"][-8:], sep="")))
                                 elif Verify_Block["CHECK"] == CONST_HASH_CMAC:
                                     Result = File_Block["DIGESTS"][CONST_HASH_CMAC][Verify_Block["KEY"]] == Verify_Block["DATA"]
                                     print("    {} AES Key #{}".format(Verify_Block["CHECK"], Verify_Block["KEY"]), "from offset {:#012x}:".format(Verify_Block["STARTOFS"]), end=" ")
+                                    print("OK" if Result else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"], sep="")))
+                                elif Verify_Block["CHECK"] == CONST_SIGNATURE_ECDSA:
+                                    Offset = Verify_Block["SIZE"] // 2
+                                    Signature_R = int.from_bytes(Verify_Block["DATA"][:Offset], byteorder="big")
+                                    Signature_S = int.from_bytes(Verify_Block["DATA"][Offset:], byteorder="big")
+                                    Signature = ecdsa.ecdsa.Signature(Signature_R, Signature_S)
+                                    del Signature_S
+                                    del Signature_R
+                                    del Offset
+                                    #
+                                    Check_Integer = int.from_bytes(File_Block["DIGESTS"][Verify_Block["HASH"]], byteorder="big")
+                                    Result = CONST_ECDSA_PUB_KEYS[Verify_Block["KEY"]]["PUBKEY"].verifies(Check_Integer, Signature)
+                                    del Check_Integer
+                                    del Signature
+                                    print("    {}-{} Signature with PubKey #{}:".format(Verify_Block["CHECK"], Verify_Block["HASH"], Verify_Block["KEY"]), "from offset {:#012x}:".format(Verify_Block["STARTOFS"]), end=" ")
                                     print("OK" if Result else "FAILED!!! {}".format(convertBytesToHexString(Verify_Block["DATA"], sep="")))
                                 else:
                                     Result = File_Block["DIGESTS"][Verify_Block["CHECK"]] == Verify_Block["DATA"]

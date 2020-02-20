@@ -36,10 +36,11 @@ If you state URLs then only the necessary bytes are downloaded once, but not sto
 * To calculate the SHA-256 for the whole package use: -b=0,0
 * Real life definitions for [JP3608-PCSG01200_00-0000000000000001](http://zeus.dl.playstation.net/cdn/JP3608/PCSG01200_00/JP3608-PCSG01200_00-0000000000000001_bg_1_1f292cbeb41b685b395a8fe43a24c10338162fbc.pkg) (5 MiB):
   * Main header digest: -b=0,0x80,digest
-  * Main+Ext header RSA: -b=0,0x100,rsa-0
-  * Meta data digest+RSA: -b=0x280,+0x1d0,digest,rsa-0,0x490
+    * Separate ECDSA check: -b=0,0x80,ecdsa-sha1-2,0x90
+  * Main+Ext header RSA: -b=0,0x100,rsa-sha1-0
+  * Meta data digest+RSA: -b=0x280,+0x1d0,digest,rsa-sha1-0,0x490
   * Unencrypted PARAM.SFO: -b=0xbf0,+0x530,sha256,0x330
-  * Head+Body digest+RSA: -b=0,0x4b0480,digest,rsa-0,0x4b04c0
+  * Head+Body digest+RSA: -b=0,0x4b0480,digest,rsa-sha1-0,0x4b04c0
   * Tail SHA1: -b=0,-32,sha1
   * Hashes for complete file: -b=0,0
 

@@ -362,25 +362,28 @@ del Key
 CONST_ECDSA_CURVES = {
     1: {
          "DESC": "VSH #1",
+         "N":    { "INT": "//////////8AAbXGF/KQ6uHbrY8=", "DESC": "VSH #1 Order N/Q", },
          "P":    { "INT": "//////////8AAAAB//////////8=", "DESC": "VSH #1 P", },
          "A":    { "INT": "//////////8AAAAB//////////w=", "DESC": "VSH #1 A", },
          "B":    { "INT": "ZdFIjANZ4jStyVvTkIAUvZGlJfk=", "DESC": "VSH #1 B", },
-         "N":    { "INT": "//////////8AAbXGF/KQ6uHbrY8=", "DESC": "VSH #1 Order N/Q", },
          "GX":   { "INT": "Ilms7hVInLCWqILwrhz5/Y7l+Po=", "DESC": "VSH #1 Gx", },
          "GY":   { "INT": "YENYRW0KHLKQjekPJ9dcgr7BCMA=", "DESC": "VSH #1 Gy", },
     },
     2: {
          "DESC": "VSH #2",
+         "N":    { "INT": "//////////7//7WuPFI+Y5RPISc=", "DESC": "VSH #2 Order N/Q", },
          "P":    { "INT": "//////////8AAAAB//////////8=", "DESC": "VSH #2 P", },
          "A":    { "INT": "//////////8AAAAB//////////w=", "DESC": "VSH #2 A", },
          "B":    { "INT": "povtwzQYApwdPOM7mjIfzLueDws=", "DESC": "VSH #2 B", },
-         "N":    { "INT": "//////////7//7WuPFI+Y5RPISc=", "DESC": "VSH #2 Order N/Q", },
          "GX":   { "INT": "Eo7EJWSH/Y/fZOJDe8Ch9tWv3iw=", "DESC": "VSH #2 Gx", },
          "GY":   { "INT": "WVhVfrHbABJgQlUk28N51axfSt8=", "DESC": "VSH #2 Gy", },
     },
 }
 for Number, Curve in CONST_ECDSA_CURVES.items():
+    Bit_Len = None
+    Size = None
     for Key in Curve:
+        Show_Convert = False
         if isinstance(Curve[Key], dict) \
         and "INT" in Curve[Key]:
             if isinstance(Curve[Key]["INT"], unicode):
@@ -389,28 +392,43 @@ for Number, Curve in CONST_ECDSA_CURVES.items():
             or isinstance(Curve[Key]["INT"], bytearray):
                 eprint("ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"]), prefix="[CONVERT] ")
             elif isinstance(Curve[Key]["INT"], int):
-                eprint("ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
+                Show_Convert = True
             #
             if isinstance(Curve[Key]["INT"], bytes) \
             or isinstance(Curve[Key]["INT"], bytearray):
                 Curve[Key]["INT"] = int.from_bytes(Curve[Key]["INT"], byteorder="big")
+            #
+            if Key == "N":
+                Bit_Len = Curve["N"]["INT"].bit_length()
+                Size = math.ceil(Bit_Len / 8.0)
+                if Debug_Level >= 3:
+                    dprint("ECDSA Curve #{} BITLEN:".format(Number), Bit_Len)
+            #
+            if Show_Convert:
+                eprint("ECDSA Curve #{}.{}:".format(Number, Key), base64.standard_b64encode(Curve[Key]["INT"].to_bytes(Size, byteorder="big")), prefix="[CONVERT] ")
         #
         if Debug_Level >= 3:
             if isinstance(Curve[Key], dict) \
             and "INT" in Curve[Key]:
-                Value = convertBytesToHexString(Curve[Key]["INT"].to_bytes(0x14, byteorder="big"), sep="")
+                Value = "{:#x}".format(Curve[Key]["INT"])
             else:
                 Value = Curve[Key]
             dprint("ECDSA Curve #{} {:2}:".format(Number, Key), Value)
             del Value
-    Curve["BITLEN"] = Curve["N"]["INT"].bit_length()
-    Curve["SIZE"] = math.ceil(Curve["BITLEN"] / 8.0)
-    if Debug_Level >= 3:
-        dprint("ECDSA Curve #{} BITLEN:".format(Number), Curve["BITLEN"])
+    Curve["BITLEN"] = Bit_Len
+    Curve["SIZE"] = Size
+    # --> Point Jacobi specialities
+    if not "GZ" in Curve:
+        Curve["GZ"] = {}
+    if not "INT" in Curve["GZ"] \
+    or Curve["GZ"]["INT"] is None:
+        Curve["GZ"]["INT"] = 1  ## equal to 1 when converting from affine coordinates
     # --> Build Curve
     Curve["CURVE"] = ecdsa.ellipticcurve.CurveFp(Curve["P"]["INT"], Curve["A"]["INT"], Curve["B"]["INT"])
-    Curve["POINT"] = ecdsa.ellipticcurve.PointJacobi(Curve["CURVE"], Curve["GX"]["INT"], Curve["GY"]["INT"], 1, order=Curve["N"]["INT"], generator=False)
+    Curve["POINT"] = ecdsa.ellipticcurve.PointJacobi(Curve["CURVE"], Curve["GX"]["INT"], Curve["GY"]["INT"], Curve["GZ"]["INT"], order=Curve["N"]["INT"], generator=False)
 del Key
+del Size
+del Bit_Len
 del Curve
 del Number
 ## --> ECDSA Public Key
@@ -429,6 +447,7 @@ CONST_ECDSA_PUB_KEYS = {
     },
 }
 for Number, PubKey in CONST_ECDSA_PUB_KEYS.items():
+    Size = CONST_ECDSA_CURVES[PubKey["CURVE"]]["SIZE"]
     for Key in PubKey:
         if isinstance(PubKey[Key], dict) \
         and "INT" in PubKey[Key]:
@@ -438,7 +457,7 @@ for Number, PubKey in CONST_ECDSA_PUB_KEYS.items():
             or isinstance(PubKey[Key]["INT"], bytearray):
                 eprint("ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"]), prefix="[CONVERT] ")
             elif isinstance(PubKey[Key]["INT"], int):
-                eprint("ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"].to_bytes(0x14, byteorder="big")), prefix="[CONVERT] ")
+                eprint("ECDSA {} PubKey {}:".format(Number, Key), base64.standard_b64encode(PubKey[Key]["INT"].to_bytes(Size, byteorder="big")), prefix="[CONVERT] ")
             #
             if isinstance(PubKey[Key]["INT"], bytes) \
             or isinstance(PubKey[Key]["INT"], bytearray):
@@ -447,7 +466,7 @@ for Number, PubKey in CONST_ECDSA_PUB_KEYS.items():
         if Debug_Level >= 3:
             if isinstance(PubKey[Key], dict) \
             and "INT" in PubKey[Key]:
-                Value = convertBytesToHexString(PubKey[Key]["INT"].to_bytes(0x14, byteorder="big"), sep="")
+                Value = "{:#x}".format(PubKey[Key]["INT"])
             else:
                 Value = PubKey[Key]
             dprint("ECDSA PubKey #{} {}:".format(Number, Key), Value)
@@ -457,6 +476,7 @@ for Number, PubKey in CONST_ECDSA_PUB_KEYS.items():
     PubKey["PUBKEY"] = ecdsa.ecdsa.Public_key(CONST_ECDSA_CURVES[PubKey["CURVE"]]["POINT"], PubPoint, verify=True)
 del PubPoint
 del Key
+del Size
 del PubKey
 del Number
 
